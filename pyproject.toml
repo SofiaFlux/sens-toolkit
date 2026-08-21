@@ -38,3 +38,7 @@ packages = ["src/sens_mcp"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "live: hits the real production SENS API over a real MCP stdio session; requires SENS_API_KEY, excluded by default (see addopts).",
+]
+addopts = "-m 'not live'"

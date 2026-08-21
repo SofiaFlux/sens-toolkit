@@ -78,7 +78,7 @@ def _operator_resolution_error(query: str, example_valid_call: Optional[str] = N
 # ---------------------------------------------------------------------------
 
 
-@mcp.resource("sens://market/cheat-sheet")
+@mcp.resource("sens://market/cheat-sheet", mime_type="text/markdown")
 def market_cheat_sheet() -> str:
     """Polish electricity market cheat sheet: OSDs, tariff groups, price components."""
     return discovery.CHEAT_SHEET_MARKDOWN
