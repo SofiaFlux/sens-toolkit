@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from typing import Literal, Optional
 
 CustomerType = Literal["home", "small_business", "industry"]
-ZonePreference = Literal["1-zone", "2-zone-night", "2-zone-weekend", "3-zone"]
+ZonePreference = Literal["1-zone", "2-zone-night", "2-zone-peak", "2-zone-weekend", "3-zone"]
 
 
 # ---------------------------------------------------------------------------
@@ -87,7 +87,7 @@ TARIFF_GROUPS: tuple[TariffGroup, ...] = (
     TariffGroup("G12w", "Taryfa weekendowa", "Niższa stawka w nocy oraz w soboty, niedziele i dni wolne.", 2, ("home",), "2-zone-weekend"),
     TariffGroup("G13", "Taryfa trzystrefowa", "Trzy strefy czasowe: szczyt, poza szczytem, noc.", 3, ("home",), "3-zone"),
     TariffGroup("C11", "Taryfa jednostrefowa (biznes nN)", "Jedna stała stawka, niskie napięcie.", 1, ("small_business",), "1-zone"),
-    TariffGroup("C12a", "Taryfa szczyt/poza szczytem", "Dwie strefy: szczyt przedpołudniowy/popołudniowy i reszta doby.", 2, ("small_business",), "2-zone-night"),
+    TariffGroup("C12a", "Taryfa szczyt/poza szczytem", "Dwie strefy: szczyt przedpołudniowy/popołudniowy i reszta doby.", 2, ("small_business",), "2-zone-peak"),
     TariffGroup("C12b", "Taryfa dzień/noc (biznes nN)", "Dwie strefy: dzień i noc.", 2, ("small_business",), "2-zone-night"),
     TariffGroup("B21", "Taryfa SN podstawowa", "Średnie napięcie, jedna lub dwie strefy podstawowe.", 2, ("industry",)),
     TariffGroup("B22", "Taryfa SN rozszerzona", "Średnie napięcie, rozbudowany podział stref.", 2, ("industry",)),
@@ -149,12 +149,26 @@ def _normalize(s: str) -> str:
     return s.strip().casefold()
 
 
+def _build_alias_index() -> dict[str, Operator]:
+    idx: dict[str, Operator] = {}
+    for op in OPERATORS:
+        for cand in (op.osd, op.default_retailer, *op.aliases):
+            idx[_normalize(cand)] = op
+    return idx
+
+
+# Built once at import time and shared by resolve_operator/resolve_operator_candidates
+# rather than rebuilt from scratch on every call.
+_ALIAS_INDEX: dict[str, Operator] = _build_alias_index()
+
+
 def resolve_operator(query: str, region: Optional[str] = None) -> Optional[dict]:
     """Resolve a natural-language city or company name to an exact OSD/retailer pair.
 
     Uses `difflib.get_close_matches` against known operator names and aliases
-    for typo tolerance. Returns None if nothing matches closely enough —
-    callers (server.py) turn that into a structured AMBIGUOUS_OPERATOR /
+    for typo tolerance. Returns None if nothing matches closely enough, or if
+    the query is genuinely ambiguous between two or more operators — callers
+    (server.py) turn that into a structured AMBIGUOUS_OPERATOR /
     UNRESOLVABLE_OPERATOR error with suggestions.
     """
     if not query or not query.strip():
@@ -163,22 +177,32 @@ def resolve_operator(query: str, region: Optional[str] = None) -> Optional[dict]
     q = _normalize(query)
 
     # Exact / substring match against aliases first (cheap and precise).
+    # Collect ALL matching operators before deciding: a single match resolves
+    # directly, but two or more equally-valid matches are ambiguous and must
+    # not be silently resolved to whichever operator happens to be declared
+    # first in OPERATORS.
+    matched_ops: list[Operator] = []
+    seen_osds: set[str] = set()
     for op in OPERATORS:
         candidates = (op.osd, op.default_retailer, *op.aliases)
         for cand in candidates:
             cand_n = _normalize(cand)
             if q == cand_n or q in cand_n or cand_n in q:
-                return _operator_to_dict(op)
+                if op.osd not in seen_osds:
+                    matched_ops.append(op)
+                    seen_osds.add(op.osd)
+                break
+
+    if len(matched_ops) == 1:
+        return _operator_to_dict(matched_ops[0])
+    if len(matched_ops) > 1:
+        # Ambiguous — let the caller's candidate-suggestion path handle it.
+        return None
 
     # Fuzzy fallback across all alias strings.
-    alias_index: dict[str, Operator] = {}
-    for op in OPERATORS:
-        for cand in (op.osd, op.default_retailer, *op.aliases):
-            alias_index[_normalize(cand)] = op
-
-    matches = difflib.get_close_matches(q, alias_index.keys(), n=1, cutoff=0.6)
+    matches = difflib.get_close_matches(q, _ALIAS_INDEX.keys(), n=1, cutoff=0.6)
     if matches:
-        return _operator_to_dict(alias_index[matches[0]])
+        return _operator_to_dict(_ALIAS_INDEX[matches[0]])
 
     return None
 
@@ -188,14 +212,10 @@ def resolve_operator_candidates(query: str, n: int = 3) -> list[str]:
     if not query or not query.strip():
         return []
     q = _normalize(query)
-    alias_index: dict[str, Operator] = {}
-    for op in OPERATORS:
-        for cand in (op.osd, op.default_retailer, *op.aliases):
-            alias_index[_normalize(cand)] = op
-    matches = difflib.get_close_matches(q, alias_index.keys(), n=n, cutoff=0.4)
+    matches = difflib.get_close_matches(q, _ALIAS_INDEX.keys(), n=n, cutoff=0.4)
     seen: list[str] = []
     for m in matches:
-        osd = alias_index[m].osd
+        osd = _ALIAS_INDEX[m].osd
         if osd not in seen:
             seen.append(osd)
     return seen

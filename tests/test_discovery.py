@@ -63,3 +63,28 @@ def test_search_tariffs_small_business():
 
 def test_known_tariff_codes_nonempty():
     assert "G11" in discovery.known_tariff_codes()
+
+
+def test_resolve_operator_enea_energa_ambiguous():
+    # "ene" is a substring of both Enea's alias "enea" and Energa-Operator's
+    # alias "energa". Regression test: resolve_operator used to return the
+    # first declared match (Enea) without checking for a second equally
+    # valid one; it must now report ambiguity instead of silently guessing.
+    result = discovery.resolve_operator("ene")
+    assert result is None
+
+    candidates = discovery.resolve_operator_candidates("ene")
+    assert "Enea Operator Sp. z o.o." in candidates
+    assert "Energa-Operator S.A." in candidates
+
+
+def test_c12a_and_c12b_have_distinct_zone_preference():
+    # C12a (peak/off-peak) and C12b (day/night) are different rate
+    # structures and must not share the same zone_preference tag.
+    c12a = next(g for g in discovery.TARIFF_GROUPS if g.code == "C12a")
+    c12b = next(g for g in discovery.TARIFF_GROUPS if g.code == "C12b")
+    assert c12a.zone_preference != c12b.zone_preference
+
+    results = discovery.search_tariffs("small_business", zone_preference="2-zone-night")
+    codes = {r["code"] for r in results}
+    assert codes == {"C12b"}

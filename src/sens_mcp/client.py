@@ -13,6 +13,7 @@ Also centralizes structured-error mapping for real HTTP failures
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 from typing import Any, Optional
 
@@ -68,6 +69,8 @@ class SensClient:
     async def aclose(self) -> None:
         if self._metadata_task is not None and not self._metadata_task.done():
             self._metadata_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._metadata_task
         if self._client is not None:
             await self._client.aclose()
             self._client = None
@@ -98,6 +101,12 @@ class SensClient:
         async with self._metadata_lock:
             if self._known_tariff_codes is not None:
                 return
+            if self._metadata_task is not None and not self._metadata_task.done():
+                # A background refresh (start_background_refresh) is already
+                # in flight — await it instead of firing a duplicate request.
+                with contextlib.suppress(Exception):
+                    await self._metadata_task
+                return
             await self._refresh_metadata()
 
     async def _refresh_metadata(self) -> None:
@@ -109,7 +118,11 @@ class SensClient:
         except Exception:
             # Background refresh failures must never surface as a hard error —
             # discovery.py's embedded fallback schema keeps working either way.
-            self._known_tariff_codes = []
+            # Leave _known_tariff_codes as None (not []) so a later call can
+            # retry rather than permanently caching the failure as "loaded
+            # empty" ([] is not None is always True, which would disable all
+            # future refresh attempts for the client's lifetime).
+            pass
 
     @property
     def known_tariff_codes(self) -> list[str]:

@@ -14,6 +14,7 @@ from mcp.server.fastmcp import FastMCP
 from . import discovery
 from .client import SensApiError, SensClient
 from .formatter import format_price_response, format_tariffs_markdown
+from .models import PriceResponse, TariffComponentsResponse
 
 mcp = FastMCP("sens-energy")
 
@@ -24,7 +25,52 @@ def get_client() -> SensClient:
     global _client
     if _client is None:
         _client = SensClient()
+        # Kick off metadata refresh in the background as soon as the client
+        # exists (design spec §5.1: non-blocking lazy init). ensure_metadata()
+        # (awaited inline by client.get_prices/etc.) remains the blocking
+        # fallback for the case where this hasn't finished yet.
+        _client.start_background_refresh()
     return _client
+
+
+def _malformed_response_error(exc: Exception) -> dict[str, Any]:
+    return {
+        "status": "error",
+        "error_code": "MALFORMED_RESPONSE",
+        "message": f"The SENS API returned an unexpected response shape: {exc}",
+        "remediation": "This likely indicates a backend schema change; please report this issue.",
+    }
+
+
+def _operator_resolution_error(query: str, example_valid_call: Optional[str] = None) -> dict[str, Any]:
+    """Shared AMBIGUOUS_OPERATOR / UNRESOLVABLE_OPERATOR error shape.
+
+    Used by both `resolve_operator` and `search_tariffs` so a failed operator
+    resolution always yields the same error_code/suggestions for the same
+    input, regardless of which tool triggered it.
+    """
+    candidates = discovery.resolve_operator_candidates(query)
+    if candidates:
+        return {
+            "status": "error",
+            "error_code": "AMBIGUOUS_OPERATOR",
+            "message": (
+                f"Operator '{query}' is ambiguous or not an exact match. "
+                "SENS separates network distribution (OSD) from energy retail (sprzedawca)."
+            ),
+            "suggestions": {"did_you_mean": candidates},
+            "example_valid_call": example_valid_call or f"resolve_operator(query='{candidates[0]}')",
+        }
+
+    return {
+        "status": "error",
+        "error_code": "UNRESOLVABLE_OPERATOR",
+        "message": f"Could not resolve '{query}' to any known OSD or retailer.",
+        "suggestions": {
+            "known_osds": [op.osd for op in discovery.OPERATORS],
+        },
+        "remediation": "Check sens://market/cheat-sheet for the full list of supported operators.",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -54,34 +100,15 @@ def resolve_operator(query: str, region: Optional[str] = None) -> dict[str, Any]
     if result is not None:
         return result
 
-    candidates = discovery.resolve_operator_candidates(query)
-    if candidates:
-        return {
-            "status": "error",
-            "error_code": "AMBIGUOUS_OPERATOR",
-            "message": (
-                f"Operator '{query}' is ambiguous or not an exact match. "
-                "SENS separates network distribution (OSD) from energy retail (sprzedawca)."
-            ),
-            "suggestions": {"did_you_mean": candidates},
-            "example_valid_call": f"resolve_operator(query='{candidates[0]}')",
-        }
-
-    return {
-        "status": "error",
-        "error_code": "UNRESOLVABLE_OPERATOR",
-        "message": f"Could not resolve '{query}' to any known OSD or retailer.",
-        "suggestions": {
-            "known_osds": [op.osd for op in discovery.OPERATORS],
-        },
-        "remediation": "Check sens://market/cheat-sheet for the full list of supported operators.",
-    }
+    return _operator_resolution_error(query)
 
 
 @mcp.tool()
 def search_tariffs(
     customer_type: Literal["home", "small_business", "industry"],
-    zone_preference: Optional[Literal["1-zone", "2-zone-night", "2-zone-weekend", "3-zone"]] = None,
+    zone_preference: Optional[
+        Literal["1-zone", "2-zone-night", "2-zone-peak", "2-zone-weekend", "3-zone"]
+    ] = None,
     operator: Optional[str] = None,
 ) -> dict[str, Any]:
     """Discover valid tariff codes tailored to a customer profile (household,
@@ -91,14 +118,10 @@ def search_tariffs(
     if operator is not None:
         resolved = discovery.resolve_operator(operator)
         if resolved is None:
-            candidates = discovery.resolve_operator_candidates(operator)
-            return {
-                "status": "error",
-                "error_code": "AMBIGUOUS_OPERATOR",
-                "message": f"Operator '{operator}' is ambiguous or not an exact match.",
-                "suggestions": {"did_you_mean": candidates} if candidates else None,
-                "example_valid_call": "search_tariffs(customer_type='home', operator='TAURON Dystrybucja S.A.')",
-            }
+            return _operator_resolution_error(
+                operator,
+                example_valid_call="search_tariffs(customer_type='home', operator='TAURON Dystrybucja S.A.')",
+            )
 
     return {"status": "ok", "tariffs": discovery.search_tariffs(customer_type, zone_preference, operator)}
 
@@ -148,7 +171,11 @@ async def get_prices(
     except SensApiError as e:
         return e.to_dict()
 
-    return {"status": "ok", **format_price_response(payload, detail_level=detail_level)}
+    try:
+        parsed = PriceResponse.model_validate(payload)
+        return {"status": "ok", **format_price_response(parsed.model_dump(), detail_level=detail_level)}
+    except Exception as e:
+        return _malformed_response_error(e)
 
 
 @mcp.tool()
@@ -162,7 +189,11 @@ async def get_tariff_components(tariff_id: str, since: Optional[str] = None) -> 
     except SensApiError as e:
         return e.to_dict()
 
-    return {"status": "ok", **payload}
+    try:
+        parsed = TariffComponentsResponse.model_validate(payload)
+        return {"status": "ok", **parsed.model_dump()}
+    except Exception as e:
+        return _malformed_response_error(e)
 
 
 def main() -> None:
