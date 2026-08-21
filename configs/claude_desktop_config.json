@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "sens-energy": {
+      "command": "uvx",
+      "args": ["sens-mcp"],
+      "env": {
+        "SENS_API_KEY": "sens_live_your_key_here"
+      }
+    }
+  }
+}

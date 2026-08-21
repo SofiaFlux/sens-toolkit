@@ -1,0 +1,225 @@
+"""Async HTTP client for the SENS Energy Data API.
+
+Implements the non-blocking lazy initialization strategy from design spec
+§5: the server boots instantly using the embedded fallback schema in
+`discovery.py`, and this client refreshes live tariff metadata (used to
+improve fuzzy-matching against real tariff codes) in the background on the
+first real tool call rather than blocking startup.
+
+Also centralizes structured-error mapping for real HTTP failures
+(401/403/timeout/5xx) so raw httpx exceptions never reach the MCP client.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import os
+from typing import Any, Optional
+
+import httpx
+
+DEFAULT_BASE_URL = "https://api.getsens.energy"
+
+
+class SensApiError(Exception):
+    """Raised for any SENS API failure; carries a structured error payload."""
+
+    def __init__(self, error_code: str, message: str, remediation: Optional[str] = None):
+        super().__init__(message)
+        self.error_code = error_code
+        self.message = message
+        self.remediation = remediation
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
+            "status": "error",
+            "error_code": self.error_code,
+            "message": self.message,
+        }
+        if self.remediation:
+            d["remediation"] = self.remediation
+        return d
+
+
+class SensClient:
+    """Thin async wrapper around httpx with background metadata caching."""
+
+    def __init__(self, base_url: Optional[str] = None, api_key: Optional[str] = None, timeout: float = 15.0):
+        self.base_url = base_url or os.environ.get("SENS_BASE_URL", DEFAULT_BASE_URL)
+        self.api_key = api_key if api_key is not None else os.environ.get("SENS_API_KEY")
+        self.timeout = timeout
+
+        self._client: Optional[httpx.AsyncClient] = None
+        self._metadata_task: Optional[asyncio.Task] = None
+        self._known_tariff_codes: Optional[list[str]] = None
+        self._metadata_lock = asyncio.Lock()
+
+    def _headers(self) -> dict[str, str]:
+        headers = {"Accept": "application/json"}
+        if self.api_key:
+            headers["X-API-KEY"] = self.api_key
+        return headers
+
+    def _ensure_client(self) -> httpx.AsyncClient:
+        if self._client is None:
+            self._client = httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout)
+        return self._client
+
+    async def aclose(self) -> None:
+        if self._metadata_task is not None and not self._metadata_task.done():
+            self._metadata_task.cancel()
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
+
+    def start_background_refresh(self) -> None:
+        """Kick off a non-blocking background metadata refresh.
+
+        Safe to call from a sync context (e.g. server startup) as long as an
+        event loop is already running; it schedules a task and returns
+        immediately without awaiting it.
+        """
+        if self._metadata_task is None or self._metadata_task.done():
+            try:
+                loop = asyncio.get_running_loop()
+                self._metadata_task = loop.create_task(self._refresh_metadata())
+            except RuntimeError:
+                # No running loop (e.g. import-time call outside async context);
+                # metadata will lazily refresh on first real tool call instead.
+                pass
+
+    async def ensure_metadata(self) -> None:
+        """Ensure a metadata refresh has been attempted at least once, without blocking startup.
+
+        Called lazily on the first real tool invocation per design spec §5.
+        """
+        if self._known_tariff_codes is not None:
+            return
+        async with self._metadata_lock:
+            if self._known_tariff_codes is not None:
+                return
+            await self._refresh_metadata()
+
+    async def _refresh_metadata(self) -> None:
+        try:
+            data = await self._request("GET", "/api/v1/tariffs", params={"size": 1000, "page": 0})
+            items = data.get("items") or data.get("content") or []
+            codes = sorted({row.get("tariff_code") for row in items if isinstance(row, dict) and row.get("tariff_code")})
+            self._known_tariff_codes = codes
+        except Exception:
+            # Background refresh failures must never surface as a hard error —
+            # discovery.py's embedded fallback schema keeps working either way.
+            self._known_tariff_codes = []
+
+    @property
+    def known_tariff_codes(self) -> list[str]:
+        return self._known_tariff_codes or []
+
+    async def _request(self, method: str, path: str, params: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        client = self._ensure_client()
+        clean_params = {k: v for k, v in (params or {}).items() if v is not None}
+        try:
+            resp = await client.request(method, path, params=clean_params, headers=self._headers())
+        except httpx.TimeoutException as e:
+            raise SensApiError(
+                "UPSTREAM_TIMEOUT",
+                f"The SENS API did not respond in time: {e}",
+                remediation="Retry the request; if it persists, check https://api.getsens.energy status.",
+            ) from e
+        except httpx.RequestError as e:
+            raise SensApiError(
+                "UPSTREAM_UNREACHABLE",
+                f"Could not reach the SENS API: {e}",
+                remediation="Check network connectivity and the SENS_BASE_URL environment variable.",
+            ) from e
+
+        if resp.status_code in (401, 403):
+            raise SensApiError(
+                "UNAUTHORIZED",
+                "Missing or invalid SENS API key.",
+                remediation="Please configure SENS_API_KEY environment variable in your Claude Desktop or Cursor MCP settings.",
+            )
+        if resp.status_code == 404:
+            raise SensApiError(
+                "NOT_FOUND",
+                f"The requested resource was not found: {path}",
+                remediation="Double check the identifier (e.g. tariff_id) and retry.",
+            )
+        if resp.status_code == 429:
+            raise SensApiError(
+                "RATE_LIMITED",
+                "The SENS API rate limit was exceeded.",
+                remediation="Wait a moment and retry with fewer/less frequent requests.",
+            )
+        if resp.status_code >= 500:
+            raise SensApiError(
+                "UPSTREAM_ERROR",
+                f"The SENS API returned a server error (HTTP {resp.status_code}).",
+                remediation="This is likely transient; retry shortly.",
+            )
+        if resp.status_code >= 400:
+            raise SensApiError(
+                "BAD_REQUEST",
+                f"The SENS API rejected the request (HTTP {resp.status_code}): {resp.text[:500]}",
+                remediation="Check the parameter values (osd, taryfa, sprzedawca, etc.) against sens://market/cheat-sheet.",
+            )
+
+        if resp.status_code == 304 or not resp.content:
+            return {}
+        try:
+            return resp.json()
+        except ValueError as e:
+            raise SensApiError(
+                "INVALID_RESPONSE",
+                f"The SENS API returned a non-JSON response: {e}",
+            ) from e
+
+    async def get_prices(
+        self,
+        osd: Optional[str] = None,
+        sprzedawca: Optional[str] = None,
+        taryfa: Optional[str] = None,
+        market: Optional[str] = None,
+        date: Optional[str] = None,
+        annual_kwh: Optional[float] = None,
+        region: Optional[str] = None,
+        since: Optional[str] = None,
+        page: int = 0,
+        size: int = 100,
+    ) -> dict[str, Any]:
+        await self.ensure_metadata()
+        return await self._request(
+            "GET",
+            "/api/v1/prices",
+            params={
+                "osd": osd,
+                "sprzedawca": sprzedawca,
+                "taryfa": taryfa,
+                "market": market,
+                "date": date,
+                "annual_kwh": annual_kwh,
+                "region": region,
+                "since": since,
+                "page": page,
+                "size": size,
+            },
+        )
+
+    async def get_tariffs(
+        self,
+        since: Optional[str] = None,
+        page: int = 0,
+        size: int = 100,
+    ) -> dict[str, Any]:
+        return await self._request(
+            "GET",
+            "/api/v1/tariffs",
+            params={"since": since, "page": page, "size": size},
+        )
+
+    async def get_tariff_components(self, tariff_id: str, since: Optional[str] = None) -> dict[str, Any]:
+        return await self._request(
+            "GET",
+            "/api/v1/tariffs/components",
+            params={"tariff_id": tariff_id, "since": since},
+        )
