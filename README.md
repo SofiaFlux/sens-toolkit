@@ -117,7 +117,18 @@ pytest
 ```
 
 Tests mock all HTTP calls with [`respx`](https://lundberg.github.io/respx/) —
-nothing in the test suite hits the live API.
+nothing in the default test suite hits the live API.
+
+### Live integration suite (opt-in)
+
+`tests/test_live_integration.py` runs the real server as a subprocess over
+the real MCP stdio protocol against the real production SENS API, and checks
+byte-for-byte parity between MCP tool responses and raw `httpx` calls to the
+same endpoints. Excluded by default; run explicitly with a real key:
+
+```bash
+SENS_API_KEY=<a real key> pytest -m live tests/test_live_integration.py -v
+```
 
 ## License
 
