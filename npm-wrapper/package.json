@@ -1,0 +1,31 @@
+{
+  "name": "@sens/mcp-server",
+  "version": "0.1.0",
+  "description": "npx-installable wrapper for sens-mcp (the real MCP server, distributed as a Python package via uv/pip). Requires uv to be installed.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SofiaFlux/sens-toolkit.git",
+    "directory": "npm-wrapper"
+  },
+  "homepage": "https://docs.getsens.energy",
+  "bin": {
+    "sens-mcp": "bin/sens-mcp.js"
+  },
+  "files": [
+    "bin/"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "sens",
+    "energy",
+    "electricity"
+  ],
+  "scripts": {
+    "test": "node --test"
+  }
+}
