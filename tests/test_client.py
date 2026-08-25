@@ -6,6 +6,19 @@ import respx
 from sens_mcp.client import SensClient
 
 
+def test_headers_include_client_type_for_cost_analysis():
+    """X-Client-Type: mcp tags all sens_mcp-originated traffic so the API gateway's
+    RateLimitingService can record which usage came through the MCP server, for later
+    cost/usage analysis (rate-limit values themselves are unaffected)."""
+    client = SensClient(base_url="https://api.getsens.energy", api_key="k")
+
+    headers = client._headers()
+
+    assert headers["X-Client-Type"] == "mcp"
+    assert headers["Accept"] == "application/json"
+    assert headers["X-API-KEY"] == "k"
+
+
 @respx.mock
 async def test_metadata_refresh_retries_after_transient_failure():
     """Regression test: a failed _refresh_metadata() call used to set

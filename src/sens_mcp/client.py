@@ -56,7 +56,7 @@ class SensClient:
         self._metadata_lock = asyncio.Lock()
 
     def _headers(self) -> dict[str, str]:
-        headers = {"Accept": "application/json"}
+        headers = {"Accept": "application/json", "X-Client-Type": "mcp"}
         if self.api_key:
             headers["X-API-KEY"] = self.api_key
         return headers
