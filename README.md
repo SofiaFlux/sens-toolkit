@@ -106,6 +106,8 @@ Standalone snippets that hit the SENS REST API directly:
   single tariff, also supports `since`.
 
 Full Swagger/OpenAPI docs: `https://api.getsens.energy/api/docs`.
+Full developer documentation (quickstart, MCP integration guide, market
+vocabulary): [docs.getsens.energy](https://docs.getsens.energy).
 
 ## Development
 
