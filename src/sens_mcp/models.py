@@ -11,7 +11,7 @@ strict contract.
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
@@ -21,101 +21,101 @@ class SensModel(BaseModel):
 
 
 class ResolvedParams(SensModel):
-    osd: Optional[str] = None
-    sprzedawca: Optional[str] = None
-    market: Optional[str] = None
-    taryfa: Optional[str] = None
+    osd: str | None = None
+    sprzedawca: str | None = None
+    market: str | None = None
+    taryfa: str | None = None
 
 
 class PaginationInfo(SensModel):
-    page: Optional[int] = None
-    size: Optional[int] = None
-    has_more: Optional[bool] = None
+    page: int | None = None
+    size: int | None = None
+    has_more: bool | None = None
 
 
 class Meta(SensModel):
-    mode: Optional[str] = None
-    date: Optional[str] = None
-    pricing_basis: Optional[str] = None
-    resolved: Optional[ResolvedParams] = None
-    pagination: Optional[PaginationInfo] = None
-    last_updated_at: Optional[str] = None
+    mode: str | None = None
+    date: str | None = None
+    pricing_basis: str | None = None
+    resolved: ResolvedParams | None = None
+    pagination: PaginationInfo | None = None
+    last_updated_at: str | None = None
 
 
 class PriceComponent(SensModel):
-    name: Optional[str] = None
-    zone: Optional[str] = None
-    granularity: Optional[str] = None
-    value_pln_per_kwh: Optional[float] = None
-    value_pln_per_month: Optional[float] = None
-    source_value: Optional[float] = None
-    source_unit: Optional[str] = None
+    name: str | None = None
+    zone: str | None = None
+    granularity: str | None = None
+    value_pln_per_kwh: float | None = None
+    value_pln_per_month: float | None = None
+    source_value: float | None = None
+    source_unit: str | None = None
 
 
 class OfferSummary(SensModel):
-    variable_total_pln_per_kwh: Optional[dict[str, float]] = None
-    fixed_total_pln_per_month: Optional[float] = None
-    fixed_total_note: Optional[str] = None
-    power_total_pln_per_kw_month: Optional[float] = None
-    variable_adder_pln_per_kwh: Optional[dict[str, float]] = None
-    energy_avg_pln_per_kwh: Optional[float] = None
-    total_avg_pln_per_kwh: Optional[float] = None
-    total_min_pln_per_kwh: Optional[float] = None
-    total_max_pln_per_kwh: Optional[float] = None
+    variable_total_pln_per_kwh: dict[str, float] | None = None
+    fixed_total_pln_per_month: float | None = None
+    fixed_total_note: str | None = None
+    power_total_pln_per_kw_month: float | None = None
+    variable_adder_pln_per_kwh: dict[str, float] | None = None
+    energy_avg_pln_per_kwh: float | None = None
+    total_avg_pln_per_kwh: float | None = None
+    total_min_pln_per_kwh: float | None = None
+    total_max_pln_per_kwh: float | None = None
 
 
 class Offer(SensModel):
-    tariff_code: Optional[str] = None
-    region: Optional[str] = None
-    variant: Optional[str] = None
-    zones: Optional[list[str]] = None
-    supply: Optional[dict[str, Any]] = None
-    distribution: Optional[dict[str, Any]] = None
-    global_: Optional[dict[str, Any]] = None
-    summary: Optional[OfferSummary] = None
+    tariff_code: str | None = None
+    region: str | None = None
+    variant: str | None = None
+    zones: list[str] | None = None
+    supply: dict[str, Any] | None = None
+    distribution: dict[str, Any] | None = None
+    global_: dict[str, Any] | None = None
+    summary: OfferSummary | None = None
 
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
 
 class PriceResponse(SensModel):
-    meta: Optional[Meta] = None
-    catalog: Optional[dict[str, Any]] = None
+    meta: Meta | None = None
+    catalog: dict[str, Any] | None = None
     offers: list[Offer] = []
     unmatched: list[dict[str, Any]] = []
     warnings: list[dict[str, Any]] = []
 
 
 class Tariff(SensModel):
-    tariff_id: Optional[str] = None
-    operator_name: Optional[str] = None
-    operator_type: Optional[str] = None
-    tariff_type: Optional[str] = None
-    tariff_code: Optional[str] = None
-    zone_count: Optional[int] = None
-    voltage_level: Optional[str] = None
-    region: Optional[str] = None
-    effective_from: Optional[str] = None
-    effective_to: Optional[str] = None
-    updated_at: Optional[str] = None
-    ingested_at: Optional[str] = None
+    tariff_id: str | None = None
+    operator_name: str | None = None
+    operator_type: str | None = None
+    tariff_type: str | None = None
+    tariff_code: str | None = None
+    zone_count: int | None = None
+    voltage_level: str | None = None
+    region: str | None = None
+    effective_from: str | None = None
+    effective_to: str | None = None
+    updated_at: str | None = None
+    ingested_at: str | None = None
 
 
 class TariffListResponse(SensModel):
     items: list[Tariff] = []
-    meta: Optional[dict[str, Any]] = None
+    meta: dict[str, Any] | None = None
 
 
 class TariffComponent(SensModel):
-    tariff_id: Optional[str] = None
-    name: Optional[str] = None
-    zone: Optional[str] = None
-    value_pln_per_kwh: Optional[float] = None
-    value_pln_per_month: Optional[float] = None
+    tariff_id: str | None = None
+    name: str | None = None
+    zone: str | None = None
+    value_pln_per_kwh: float | None = None
+    value_pln_per_month: float | None = None
 
 
 class TariffComponentsResponse(SensModel):
     items: list[TariffComponent] = []
-    meta: Optional[dict[str, Any]] = None
+    meta: dict[str, Any] | None = None
 
 
 class StructuredError(SensModel):
@@ -124,6 +124,6 @@ class StructuredError(SensModel):
     status: str = "error"
     error_code: str
     message: str
-    suggestions: Optional[dict[str, Any]] = None
-    remediation: Optional[str] = None
-    example_valid_call: Optional[str] = None
+    suggestions: dict[str, Any] | None = None
+    remediation: str | None = None
+    example_valid_call: str | None = None

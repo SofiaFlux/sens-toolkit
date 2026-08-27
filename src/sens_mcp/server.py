@@ -6,19 +6,18 @@ Implements the actionable self-correction error protocol from design spec
 LLM driving this server in a ReAct loop can self-repair its next call.
 """
 
-import os
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 from mcp.server.fastmcp import FastMCP
 
 from . import discovery
 from .client import SensApiError, SensClient
-from .formatter import format_price_response, format_tariffs_markdown
+from .formatter import format_price_response
 from .models import PriceResponse, TariffComponentsResponse
 
 mcp = FastMCP("sens-energy")
 
-_client: Optional[SensClient] = None
+_client: SensClient | None = None
 
 
 def get_client() -> SensClient:
@@ -42,7 +41,7 @@ def _malformed_response_error(exc: Exception) -> dict[str, Any]:
     }
 
 
-def _operator_resolution_error(query: str, example_valid_call: Optional[str] = None) -> dict[str, Any]:
+def _operator_resolution_error(query: str, example_valid_call: str | None = None) -> dict[str, Any]:
     """Shared AMBIGUOUS_OPERATOR / UNRESOLVABLE_OPERATOR error shape.
 
     Used by both `resolve_operator` and `search_tariffs` so a failed operator
@@ -90,7 +89,7 @@ def market_cheat_sheet() -> str:
 
 
 @mcp.tool()
-def resolve_operator(query: str, region: Optional[str] = None) -> dict[str, Any]:
+def resolve_operator(query: str, region: str | None = None) -> dict[str, Any]:
     """Resolve a natural-language city or company name to the exact OSD (distribution
     operator) and default retailer strings the SENS API expects.
 
@@ -106,10 +105,8 @@ def resolve_operator(query: str, region: Optional[str] = None) -> dict[str, Any]
 @mcp.tool()
 def search_tariffs(
     customer_type: Literal["home", "small_business", "industry"],
-    zone_preference: Optional[
-        Literal["1-zone", "2-zone-night", "2-zone-peak", "2-zone-weekend", "3-zone"]
-    ] = None,
-    operator: Optional[str] = None,
+    zone_preference: Literal["1-zone", "2-zone-night", "2-zone-peak", "2-zone-weekend", "3-zone"] | None = None,
+    operator: str | None = None,
 ) -> dict[str, Any]:
     """Discover valid tariff codes tailored to a customer profile (household,
     small business, or industry), optionally narrowed by zone preference and
@@ -135,12 +132,12 @@ def search_tariffs(
 async def get_prices(
     osd: str,
     taryfa: str,
-    sprzedawca: Optional[str] = None,
-    date: Optional[str] = None,
-    market: Optional[str] = None,
-    annual_kwh: Optional[float] = None,
-    region: Optional[str] = None,
-    since: Optional[str] = None,
+    sprzedawca: str | None = None,
+    date: str | None = None,
+    market: str | None = None,
+    annual_kwh: float | None = None,
+    region: str | None = None,
+    since: str | None = None,
     detail_level: Literal["summary", "detailed"] = "summary",
     page: int = 0,
     size: int = 100,
@@ -174,12 +171,13 @@ async def get_prices(
     try:
         parsed = PriceResponse.model_validate(payload)
         return {"status": "ok", **format_price_response(parsed.model_dump(), detail_level=detail_level)}
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - MCP tool boundary: any parse/validation
+        # failure here becomes a structured error response, never an unhandled exception.
         return _malformed_response_error(e)
 
 
 @mcp.tool()
-async def get_tariff_components(tariff_id: str, since: Optional[str] = None) -> dict[str, Any]:
+async def get_tariff_components(tariff_id: str, since: str | None = None) -> dict[str, Any]:
     """Inspect the detailed fixed/variable rate components of a tariff, as
     approved by URE (the Polish energy regulator).
     """
@@ -192,7 +190,8 @@ async def get_tariff_components(tariff_id: str, since: Optional[str] = None) -> 
     try:
         parsed = TariffComponentsResponse.model_validate(payload)
         return {"status": "ok", **parsed.model_dump()}
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - MCP tool boundary: any parse/validation
+        # failure here becomes a structured error response, never an unhandled exception.
         return _malformed_response_error(e)
 
 

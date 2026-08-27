@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 
@@ -25,7 +25,7 @@ DEFAULT_BASE_URL = "https://api.getsens.energy"
 class SensApiError(Exception):
     """Raised for any SENS API failure; carries a structured error payload."""
 
-    def __init__(self, error_code: str, message: str, remediation: Optional[str] = None):
+    def __init__(self, error_code: str, message: str, remediation: str | None = None):
         super().__init__(message)
         self.error_code = error_code
         self.message = message
@@ -45,14 +45,14 @@ class SensApiError(Exception):
 class SensClient:
     """Thin async wrapper around httpx with background metadata caching."""
 
-    def __init__(self, base_url: Optional[str] = None, api_key: Optional[str] = None, timeout: float = 15.0):
+    def __init__(self, base_url: str | None = None, api_key: str | None = None, timeout: float = 15.0):
         self.base_url = base_url or os.environ.get("SENS_BASE_URL", DEFAULT_BASE_URL)
         self.api_key = api_key if api_key is not None else os.environ.get("SENS_API_KEY")
         self.timeout = timeout
 
-        self._client: Optional[httpx.AsyncClient] = None
-        self._metadata_task: Optional[asyncio.Task] = None
-        self._known_tariff_codes: Optional[list[str]] = None
+        self._client: httpx.AsyncClient | None = None
+        self._metadata_task: asyncio.Task | None = None
+        self._known_tariff_codes: list[str] | None = None
         self._metadata_lock = asyncio.Lock()
 
     def _headers(self) -> dict[str, str]:
@@ -115,7 +115,7 @@ class SensClient:
             items = data.get("items") or data.get("content") or []
             codes = sorted({row.get("tariff_code") for row in items if isinstance(row, dict) and row.get("tariff_code")})
             self._known_tariff_codes = codes
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 - deliberately broad and silent, see comment below
             # Background refresh failures must never surface as a hard error —
             # discovery.py's embedded fallback schema keeps working either way.
             # Leave _known_tariff_codes as None (not []) so a later call can
@@ -128,7 +128,7 @@ class SensClient:
     def known_tariff_codes(self) -> list[str]:
         return self._known_tariff_codes or []
 
-    async def _request(self, method: str, path: str, params: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    async def _request(self, method: str, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         client = self._ensure_client()
         clean_params = {k: v for k, v in (params or {}).items() if v is not None}
         try:
@@ -189,14 +189,14 @@ class SensClient:
 
     async def get_prices(
         self,
-        osd: Optional[str] = None,
-        sprzedawca: Optional[str] = None,
-        taryfa: Optional[str] = None,
-        market: Optional[str] = None,
-        date: Optional[str] = None,
-        annual_kwh: Optional[float] = None,
-        region: Optional[str] = None,
-        since: Optional[str] = None,
+        osd: str | None = None,
+        sprzedawca: str | None = None,
+        taryfa: str | None = None,
+        market: str | None = None,
+        date: str | None = None,
+        annual_kwh: float | None = None,
+        region: str | None = None,
+        since: str | None = None,
         page: int = 0,
         size: int = 100,
     ) -> dict[str, Any]:
@@ -220,7 +220,7 @@ class SensClient:
 
     async def get_tariffs(
         self,
-        since: Optional[str] = None,
+        since: str | None = None,
         page: int = 0,
         size: int = 100,
     ) -> dict[str, Any]:
@@ -230,7 +230,7 @@ class SensClient:
             params={"since": since, "page": page, "size": size},
         )
 
-    async def get_tariff_components(self, tariff_id: str, since: Optional[str] = None) -> dict[str, Any]:
+    async def get_tariff_components(self, tariff_id: str, since: str | None = None) -> dict[str, Any]:
         return await self._request(
             "GET",
             "/api/v1/tariffs/components",

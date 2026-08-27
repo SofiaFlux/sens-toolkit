@@ -11,8 +11,8 @@ data in when it is available, but never block on it.
 from __future__ import annotations
 
 import difflib
-from dataclasses import dataclass, field
-from typing import Literal, Optional
+from dataclasses import dataclass
+from typing import Literal
 
 CustomerType = Literal["home", "small_business", "industry"]
 ZonePreference = Literal["1-zone", "2-zone-night", "2-zone-peak", "2-zone-weekend", "3-zone"]
@@ -78,7 +78,7 @@ class TariffGroup:
     description: str
     zones: int
     customer_types: tuple[CustomerType, ...]
-    zone_preference: Optional[ZonePreference] = None
+    zone_preference: ZonePreference | None = None
 
 
 TARIFF_GROUPS: tuple[TariffGroup, ...] = (
@@ -162,7 +162,7 @@ def _build_alias_index() -> dict[str, Operator]:
 _ALIAS_INDEX: dict[str, Operator] = _build_alias_index()
 
 
-def resolve_operator(query: str, region: Optional[str] = None) -> Optional[dict]:
+def resolve_operator(query: str, region: str | None = None) -> dict | None:
     """Resolve a natural-language city or company name to an exact OSD/retailer pair.
 
     Uses `difflib.get_close_matches` against known operator names and aliases
@@ -232,8 +232,8 @@ def _operator_to_dict(op: Operator) -> dict:
 
 def search_tariffs(
     customer_type: CustomerType,
-    zone_preference: Optional[ZonePreference] = None,
-    operator: Optional[str] = None,
+    zone_preference: ZonePreference | None = None,
+    operator: str | None = None,
 ) -> list[dict]:
     """Filter the embedded tariff-group catalog by customer profile.
 

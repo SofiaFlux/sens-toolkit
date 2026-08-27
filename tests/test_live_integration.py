@@ -52,10 +52,12 @@ def _server_params(api_key: str = SENS_API_KEY) -> StdioServerParameters:
 
 @contextlib.asynccontextmanager
 async def open_session(api_key: str = SENS_API_KEY):
-    async with stdio_client(_server_params(api_key)) as (read, write):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
-            yield session
+    async with (
+        stdio_client(_server_params(api_key)) as (read, write),
+        ClientSession(read, write) as session,
+    ):
+        await session.initialize()
+        yield session
 
 
 async def _call(session: ClientSession, tool: str, **kwargs):
