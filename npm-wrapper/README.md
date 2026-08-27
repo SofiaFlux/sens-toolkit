@@ -1,4 +1,4 @@
-# @sens/mcp-server
+# @getsens/mcp-server
 
 `npx`-installable wrapper for [`sens-mcp`](https://pypi.org/project/sens-mcp/)
 (the real MCP server — a Python package, distributed via `uv`/`pip`).
@@ -18,7 +18,7 @@ runs `uvx sens-mcp`, forwarding all arguments and environment variables
 
 ```bash
 export SENS_API_KEY=sens_live_your_key_here
-npx @sens/mcp-server
+npx @getsens/mcp-server
 ```
 
 Or in an MCP client config (e.g. Claude Desktop):
@@ -28,7 +28,7 @@ Or in an MCP client config (e.g. Claude Desktop):
   "mcpServers": {
     "sens-energy": {
       "command": "npx",
-      "args": ["-y", "@sens/mcp-server"],
+      "args": ["-y", "@getsens/mcp-server"],
       "env": { "SENS_API_KEY": "sens_live_your_key_here" }
     }
   }

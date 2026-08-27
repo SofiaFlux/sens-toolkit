@@ -1,6 +1,9 @@
 {
-  "name": "@sens/mcp-server",
+  "name": "@getsens/mcp-server",
   "version": "0.1.0",
+  "publishConfig": {
+    "access": "public"
+  },
   "description": "npx-installable wrapper for sens-mcp (the real MCP server, distributed as a Python package via uv/pip). Requires uv to be installed.",
   "license": "MIT",
   "repository": {
