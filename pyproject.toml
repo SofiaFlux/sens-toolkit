@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sens-mcp"
-version = "0.1.0"
+version = "0.1.1"
 description = "MCP server and developer starter kit for the SENS Polish Energy Data API"
 readme = "README.md"
 requires-python = ">=3.10"
