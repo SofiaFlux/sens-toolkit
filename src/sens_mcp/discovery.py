@@ -59,7 +59,7 @@ OPERATORS: tuple[Operator, ...] = (
     ),
     Operator(
         osd="Stoen Operator Sp. z o.o.",
-        default_retailer="innogy Polska S.A.",
+        default_retailer="E.ON Polska S.A.",
         region="Warszawa (city)",
         aliases=("stoen", "stoen operator", "warszawa", "warsaw"),
     ),
@@ -113,7 +113,7 @@ exact values the API expects.
 | TAURON Dystrybucja S.A. | TAURON Sprzedaż Sp. z o.o. | Małopolskie / Śląskie / Opolskie / Dolnośląskie |
 | Enea Operator Sp. z o.o. | Enea S.A. | Wielkopolskie / Zachodniopomorskie / Lubuskie |
 | Energa-Operator S.A. | Energa Obrót S.A. | Pomorskie / Warmińsko-Mazurskie |
-| Stoen Operator Sp. z o.o. | innogy Polska S.A. | Warszawa (city) |
+| Stoen Operator Sp. z o.o. | E.ON Polska S.A. | Warszawa (city) |
 
 ## Tariff groups
 - **G (household):** G11 (1-zone flat), G12 (2-zone day/night), G12w (2-zone
