@@ -130,6 +130,34 @@ class TestDiscoveryToolsLive:
             codes = {t["code"] for t in result["tariffs"]}
             assert codes == {"G12w"}
 
+    async def test_all_default_retailers_exist_in_tariff_database(self):
+        """Validate that each operator's suggested default_retailer (when not None)
+        is an actual retailer name recognized by the live API. This prevents the
+        compass pointing to a destination that doesn't exist.
+        """
+        from sens_mcp.discovery import OPERATORS
+
+        async with open_session() as session:
+            # For each operator with a non-None default_retailer, try to use it
+            # in a get_prices call with a G11 tariff (universally available).
+            for op in OPERATORS:
+                if op.default_retailer is not None:
+                    result = await _call(
+                        session,
+                        "get_prices",
+                        osd=op.osd,
+                        taryfa="G11",
+                        sprzedawca=op.default_retailer,
+                    )
+                    # Either the call succeeds with ok status, or it fails due to
+                    # lack of coverage for that operator/retailer/tariff combo
+                    # (which is acceptable — the retailer name is valid), but NOT
+                    # due to the retailer not existing in the database.
+                    assert result["status"] != "error" or result.get("error_code") not in {
+                        "INVALID_RETAILER",
+                        "RETAILER_NOT_FOUND",
+                    }, f"Operator {op.osd} has invalid default_retailer: {op.default_retailer}"
+
 
 class TestDataToolsLiveWithParity:
     """The core proof: an MCP tool call and a raw curl/httpx call against the

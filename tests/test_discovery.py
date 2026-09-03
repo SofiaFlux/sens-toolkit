@@ -88,3 +88,17 @@ def test_c12a_and_c12b_have_distinct_zone_preference():
     results = discovery.search_tariffs("small_business", zone_preference="2-zone-night")
     codes = {r["code"] for r in results}
     assert codes == {"C12b"}
+
+
+def test_energa_default_retailer_matches_the_name_in_the_tariff_database():
+    """W bazie jest 'ENERGA-OBRÓT S.A.' (z mysnikiem); tabela zwracala 'Energa Obrót S.A.',
+    czyli string, ktorego get_prices(sprzedawca=...) nie przyjmuje."""
+    op = next(o for o in discovery.OPERATORS if o.osd == "Energa-Operator S.A.")
+    assert op.default_retailer == "ENERGA-OBRÓT S.A."
+
+
+def test_stoen_has_no_fabricated_default_retailer():
+    """'E.ON Polska S.A.' nie istnieje w bazie taryf sprzedawcow w ogole (sprawdzone tez
+    'innogy' i samo 'E.ON'). Kompas nie moze pokazywac drogi, ktorej nie ma."""
+    op = next(o for o in discovery.OPERATORS if o.osd == "Stoen Operator Sp. z o.o.")
+    assert op.default_retailer is None
