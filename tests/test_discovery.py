@@ -102,3 +102,15 @@ def test_stoen_has_no_fabricated_default_retailer():
     'innogy' i samo 'E.ON'). Kompas nie moze pokazywac drogi, ktorej nie ma."""
     op = next(o for o in discovery.OPERATORS if o.osd == "Stoen Operator Sp. z o.o.")
     assert op.default_retailer is None
+
+
+def test_every_operator_osd_resolves_to_exactly_itself():
+    """C1 Zadanie 14, krok 3: kazda nazwa OSD z OPERATORS musi rozstrzygac sie przez
+    resolve_operator do dokladnie jednego operatora (0 lub >=2 to blad) -- druga polowa
+    kryterium 11, na prawdziwej (nie zamockowanej) tablicy OPERATORS."""
+    for op in discovery.OPERATORS:
+        result = discovery.resolve_operator(op.osd)
+        assert result is not None, f"{op.osd!r} failed to resolve to any operator"
+        assert result["osd"] == op.osd, (
+            f"{op.osd!r} resolved to a different operator: {result['osd']!r}"
+        )
