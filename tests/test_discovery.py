@@ -88,3 +88,29 @@ def test_c12a_and_c12b_have_distinct_zone_preference():
     results = discovery.search_tariffs("small_business", zone_preference="2-zone-night")
     codes = {r["code"] for r in results}
     assert codes == {"C12b"}
+
+
+def test_energa_default_retailer_matches_the_name_in_the_tariff_database():
+    """W bazie jest 'ENERGA-OBRÓT S.A.' (z mysnikiem); tabela zwracala 'Energa Obrót S.A.',
+    czyli string, ktorego get_prices(sprzedawca=...) nie przyjmuje."""
+    op = next(o for o in discovery.OPERATORS if o.osd == "Energa-Operator S.A.")
+    assert op.default_retailer == "ENERGA-OBRÓT S.A."
+
+
+def test_stoen_has_no_fabricated_default_retailer():
+    """'E.ON Polska S.A.' nie istnieje w bazie taryf sprzedawcow w ogole (sprawdzone tez
+    'innogy' i samo 'E.ON'). Kompas nie moze pokazywac drogi, ktorej nie ma."""
+    op = next(o for o in discovery.OPERATORS if o.osd == "Stoen Operator Sp. z o.o.")
+    assert op.default_retailer is None
+
+
+def test_every_operator_osd_resolves_to_exactly_itself():
+    """C1 Zadanie 14, krok 3: kazda nazwa OSD z OPERATORS musi rozstrzygac sie przez
+    resolve_operator do dokladnie jednego operatora (0 lub >=2 to blad) -- druga polowa
+    kryterium 11, na prawdziwej (nie zamockowanej) tablicy OPERATORS."""
+    for op in discovery.OPERATORS:
+        result = discovery.resolve_operator(op.osd)
+        assert result is not None, f"{op.osd!r} failed to resolve to any operator"
+        assert result["osd"] == op.osd, (
+            f"{op.osd!r} resolved to a different operator: {result['osd']!r}"
+        )

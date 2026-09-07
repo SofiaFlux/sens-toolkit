@@ -26,7 +26,7 @@ ZonePreference = Literal["1-zone", "2-zone-night", "2-zone-peak", "2-zone-weeken
 @dataclass(frozen=True)
 class Operator:
     osd: str
-    default_retailer: str
+    default_retailer: str | None
     region: str
     aliases: tuple[str, ...]
     supported_tariff_groups: tuple[str, ...] = ("G", "C", "B", "A")
@@ -53,13 +53,13 @@ OPERATORS: tuple[Operator, ...] = (
     ),
     Operator(
         osd="Energa-Operator S.A.",
-        default_retailer="Energa Obrót S.A.",
+        default_retailer="ENERGA-OBRÓT S.A.",
         region="Pomorskie / Warmińsko-Mazurskie / part of Kujawsko-Pomorskie",
         aliases=("energa", "energa-operator", "energa operator", "energa obrot", "energa obrót", "gdansk", "gdańsk"),
     ),
     Operator(
         osd="Stoen Operator Sp. z o.o.",
-        default_retailer="E.ON Polska S.A.",
+        default_retailer=None,
         region="Warszawa (city)",
         aliases=("stoen", "stoen operator", "warszawa", "warsaw"),
     ),
@@ -112,8 +112,8 @@ exact values the API expects.
 | PGE Dystrybucja S.A. | PGE Obrót S.A. | Mazowieckie / Łódzkie / Lubelskie / Podlaskie |
 | TAURON Dystrybucja S.A. | TAURON Sprzedaż Sp. z o.o. | Małopolskie / Śląskie / Opolskie / Dolnośląskie |
 | Enea Operator Sp. z o.o. | Enea S.A. | Wielkopolskie / Zachodniopomorskie / Lubuskie |
-| Energa-Operator S.A. | Energa Obrót S.A. | Pomorskie / Warmińsko-Mazurskie |
-| Stoen Operator Sp. z o.o. | E.ON Polska S.A. | Warszawa (city) |
+| Energa-Operator S.A. | ENERGA-OBRÓT S.A. | Pomorskie / Warmińsko-Mazurskie |
+| Stoen Operator Sp. z o.o. | *(none available)* | Warszawa (city) |
 
 ## Tariff groups
 - **G (household):** G11 (1-zone flat), G12 (2-zone day/night), G12w (2-zone
@@ -152,7 +152,10 @@ def _normalize(s: str) -> str:
 def _build_alias_index() -> dict[str, Operator]:
     idx: dict[str, Operator] = {}
     for op in OPERATORS:
-        for cand in (op.osd, op.default_retailer, *op.aliases):
+        candidates = [op.osd, *op.aliases]
+        if op.default_retailer is not None:
+            candidates.append(op.default_retailer)
+        for cand in candidates:
             idx[_normalize(cand)] = op
     return idx
 
@@ -184,7 +187,9 @@ def resolve_operator(query: str, region: str | None = None) -> dict | None:
     matched_ops: list[Operator] = []
     seen_osds: set[str] = set()
     for op in OPERATORS:
-        candidates = (op.osd, op.default_retailer, *op.aliases)
+        candidates = [op.osd, *op.aliases]
+        if op.default_retailer is not None:
+            candidates.append(op.default_retailer)
         for cand in candidates:
             cand_n = _normalize(cand)
             if q == cand_n or q in cand_n or cand_n in q:
