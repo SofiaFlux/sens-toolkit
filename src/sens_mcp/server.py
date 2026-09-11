@@ -135,7 +135,7 @@ async def get_prices(
     sprzedawca: str | None = None,
     date: str | None = None,
     market: str | None = None,
-    annual_kwh: float | None = None,
+    annual_kwh: int | None = None,
     region: str | None = None,
     since: str | None = None,
     detail_level: Literal["summary", "detailed"] = "summary",
