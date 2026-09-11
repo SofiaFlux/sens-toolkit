@@ -52,6 +52,20 @@ def test_detailed_returns_payload_unmodified():
     assert result is SAMPLE_PAYLOAD
 
 
+def test_summary_always_emits_warnings_list():
+    result = format_price_response(SAMPLE_PAYLOAD, detail_level="summary")
+    assert result["warnings"] == []
+
+    payload = dict(SAMPLE_PAYLOAD)
+    payload["warnings"] = [{"code": "ambiguous_operator", "message": "did you mean: [...]"}]
+    result = format_price_response(payload, detail_level="summary")
+    assert result["warnings"] == payload["warnings"]
+
+    payload = {k: v for k, v in SAMPLE_PAYLOAD.items() if k != "warnings"}
+    result = format_price_response(payload, detail_level="summary")
+    assert result["warnings"] == []
+
+
 def test_format_tariffs_markdown_empty():
     assert "No tariffs" in format_tariffs_markdown([])
 
