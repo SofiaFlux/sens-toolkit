@@ -109,10 +109,10 @@ exact values the API expects.
 
 | OSD | Default retailer | Region |
 |---|---|---|
-| PGE Dystrybucja S.A. | PGE Obrót S.A. | Mazowieckie / Łódzkie / Lubelskie / Podlaskie |
-| TAURON Dystrybucja S.A. | TAURON Sprzedaż Sp. z o.o. | Małopolskie / Śląskie / Opolskie / Dolnośląskie |
-| Enea Operator Sp. z o.o. | Enea S.A. | Wielkopolskie / Zachodniopomorskie / Lubuskie |
-| Energa-Operator S.A. | ENERGA-OBRÓT S.A. | Pomorskie / Warmińsko-Mazurskie |
+| PGE Dystrybucja S.A. | PGE Obrót S.A. | Mazowieckie / Łódzkie / Lubelskie / Podlaskie / Rzeszów area |
+| TAURON Dystrybucja S.A. | TAURON Sprzedaż Sp. z o.o. | Małopolskie / Śląskie / Opolskie / Dolnośląskie / Świętokrzyskie |
+| Enea Operator Sp. z o.o. | Enea S.A. | Wielkopolskie / Zachodniopomorskie / Lubuskie / Kujawsko-Pomorskie |
+| Energa-Operator S.A. | ENERGA-OBRÓT S.A. | Pomorskie / Warmińsko-Mazurskie / part of Kujawsko-Pomorskie |
 | Stoen Operator Sp. z o.o. | *(none available)* | Warszawa (city) |
 
 ## Tariff groups
