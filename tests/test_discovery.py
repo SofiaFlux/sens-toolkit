@@ -61,6 +61,22 @@ def test_search_tariffs_small_business():
     assert codes == {"C11", "C12a", "C12b"}
 
 
+def test_search_tariffs_can_include_live_catalog_codes():
+    """SENS-QA-20260910-023: search discovery must be able to surface tariff
+    codes present in the live REST catalog instead of being permanently limited
+    to the embedded fallback subset.
+    """
+    live_codes = ["G12as", "C11em", "Bt21", "R"]
+
+    home = {r["code"] for r in discovery.search_tariffs("home", live_codes=live_codes)}
+    small = {r["code"] for r in discovery.search_tariffs("small_business", live_codes=live_codes)}
+    industry = {r["code"] for r in discovery.search_tariffs("industry", live_codes=live_codes)}
+
+    assert "G12as" in home
+    assert "C11em" in small
+    assert {"Bt21", "R"}.issubset(industry)
+
+
 def test_known_tariff_codes_nonempty():
     assert "G11" in discovery.known_tariff_codes()
 
