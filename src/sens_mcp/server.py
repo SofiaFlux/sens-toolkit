@@ -42,12 +42,7 @@ def _malformed_response_error(exc: Exception) -> dict[str, Any]:
 
 
 def _operator_resolution_error(query: str, example_valid_call: str | None = None) -> dict[str, Any]:
-    """Shared AMBIGUOUS_OPERATOR / UNRESOLVABLE_OPERATOR error shape.
-
-    Used by both `resolve_operator` and `search_tariffs` so a failed operator
-    resolution always yields the same error_code/suggestions for the same
-    input, regardless of which tool triggered it.
-    """
+    """Shared AMBIGUOUS_OPERATOR / UNRESOLVABLE_OPERATOR error shape."""
     candidates = discovery.resolve_operator_candidates(query)
     if candidates:
         return {
@@ -103,14 +98,15 @@ def resolve_operator(query: str, region: str | None = None) -> dict[str, Any]:
 
 
 @mcp.tool()
-def search_tariffs(
+async def search_tariffs(
     customer_type: Literal["home", "small_business", "industry"],
     zone_preference: Literal["1-zone", "2-zone-night", "2-zone-peak", "2-zone-weekend", "3-zone"] | None = None,
     operator: str | None = None,
 ) -> dict[str, Any]:
     """Discover valid tariff codes tailored to a customer profile (household,
     small business, or industry), optionally narrowed by zone preference and
-    operator.
+    operator. The embedded catalog is enriched with live SENS tariff codes
+    when metadata is reachable; discovery still works offline from fallback data.
     """
     if operator is not None:
         resolved = discovery.resolve_operator(operator)
@@ -120,7 +116,17 @@ def search_tariffs(
                 example_valid_call="search_tariffs(customer_type='home', operator='TAURON Dystrybucja S.A.')",
             )
 
-    return {"status": "ok", "tariffs": discovery.search_tariffs(customer_type, zone_preference, operator)}
+    client = get_client()
+    await client.ensure_metadata()
+    return {
+        "status": "ok",
+        "tariffs": discovery.search_tariffs(
+            customer_type,
+            zone_preference,
+            operator,
+            live_codes=client.known_tariff_codes,
+        ),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -172,7 +178,6 @@ async def get_prices(
         parsed = PriceResponse.model_validate(payload)
         return {"status": "ok", **format_price_response(parsed.model_dump(), detail_level=detail_level)}
     except Exception as e:  # noqa: BLE001 - MCP tool boundary: any parse/validation
-        # failure here becomes a structured error response, never an unhandled exception.
         return _malformed_response_error(e)
 
 
@@ -191,7 +196,6 @@ async def get_tariff_components(tariff_id: str, since: str | None = None) -> dic
         parsed = TariffComponentsResponse.model_validate(payload)
         return {"status": "ok", **parsed.model_dump()}
     except Exception as e:  # noqa: BLE001 - MCP tool boundary: any parse/validation
-        # failure here becomes a structured error response, never an unhandled exception.
         return _malformed_response_error(e)
 
 
