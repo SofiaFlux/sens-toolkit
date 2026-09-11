@@ -63,8 +63,8 @@ def format_price_response(payload: dict[str, Any], detail_level: str = "summary"
     if trimmed_offers:
         trimmed["offers"] = trimmed_offers
 
-    if payload.get("warnings"):
-        trimmed["warnings"] = payload["warnings"]
+    warnings = payload.get("warnings")
+    trimmed["warnings"] = list(warnings) if warnings else []
     if payload.get("unmatched"):
         trimmed["unmatched"] = payload["unmatched"]
 
