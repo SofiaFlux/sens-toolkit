@@ -194,7 +194,7 @@ class SensClient:
         taryfa: str | None = None,
         market: str | None = None,
         date: str | None = None,
-        annual_kwh: float | None = None,
+        annual_kwh: int | None = None,
         region: str | None = None,
         since: str | None = None,
         page: int = 0,
