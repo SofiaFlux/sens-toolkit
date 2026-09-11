@@ -104,6 +104,17 @@ def test_stoen_has_no_fabricated_default_retailer():
     assert op.default_retailer is None
 
 
+def test_cheat_sheet_regions_match_operator_table():
+    """SENS-QA-20260910-004: the static cheat-sheet resource drifted from the
+    OPERATORS table. Every operator region must appear verbatim in the sheet."""
+    sheet = discovery.CHEAT_SHEET_MARKDOWN
+    for op in discovery.OPERATORS:
+        assert op.osd in sheet, f"{op.osd!r} missing from cheat-sheet"
+        assert op.region in sheet, (
+            f"region {op.region!r} of {op.osd!r} missing from cheat-sheet"
+        )
+
+
 def test_every_operator_osd_resolves_to_exactly_itself():
     """C1 Zadanie 14, krok 3: kazda nazwa OSD z OPERATORS musi rozstrzygac sie przez
     resolve_operator do dokladnie jednego operatora (0 lub >=2 to blad) -- druga polowa
