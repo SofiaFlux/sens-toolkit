@@ -112,7 +112,10 @@ class SensClient:
     async def _refresh_metadata(self) -> None:
         try:
             data = await self._request("GET", "/api/v1/tariffs", params={"size": 1000, "page": 0})
-            items = data.get("items") or data.get("content") or []
+            # The public SENS collection envelope is `data`; keep the older
+            # `items`/`content` aliases for compatibility with pre-release and
+            # mocked responses instead of silently treating live metadata as empty.
+            items = data.get("data") or data.get("items") or data.get("content") or []
             codes = sorted({row.get("tariff_code") for row in items if isinstance(row, dict) and row.get("tariff_code")})
             self._known_tariff_codes = codes
         except Exception:  # noqa: BLE001, S110 - deliberately broad and silent, see comment below
