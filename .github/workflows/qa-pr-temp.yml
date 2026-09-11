@@ -1,0 +1,25 @@
+name: Temporary QA verification
+
+on:
+  push:
+    branches:
+      - fix/qa-003-annual-kwh-int
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e '.[dev]'
+      - run: pytest -q
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm test
+        working-directory: npm-wrapper
