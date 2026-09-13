@@ -11,6 +11,8 @@ data in when it is available, but never block on it.
 from __future__ import annotations
 
 import difflib
+import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Literal
 
@@ -136,7 +138,8 @@ source of truth.
 
 ## Tools
 - `resolve_operator(query, region=None)` — fuzzy-resolve a city or company
-  name to the exact `osd`/`sprzedawca` strings.
+  name to the exact `osd`/`sprzedawca` strings; when supplied, `region` is a
+  constraint/disambiguator and conflicting matches are rejected.
 - `search_tariffs(customer_type, zone_preference=None, operator=None)` —
   discover valid tariff codes for a customer profile.
 - `get_prices(osd, taryfa, ...)` — fetch composite prices and rate breakdown.
@@ -151,6 +154,38 @@ source of truth.
 
 def _normalize(s: str) -> str:
     return s.strip().casefold()
+
+
+_REGION_NOISE = {"part", "of", "area", "city"}
+
+
+def _normalize_region_fragment(value: str) -> str:
+    folded = unicodedata.normalize("NFKD", value.casefold())
+    asciiish = "".join(ch for ch in folded if not unicodedata.combining(ch))
+    tokens = re.findall(r"[a-z0-9]+", asciiish)
+    return " ".join(token for token in tokens if token not in _REGION_NOISE)
+
+
+def _region_matches(op: Operator, region: str | None) -> bool:
+    """Match one explicit coverage segment, not arbitrary substrings.
+
+    In particular, `Pomorskie` must not accidentally match the `pomorskie`
+    suffix inside `Kujawsko-Pomorskie`. Slash-separated coverage entries are
+    authoritative; presentation qualifiers such as `city`, `area`, and
+    `part of` are ignored for matching.
+    """
+    if region is None or not region.strip():
+        return True
+    requested = _normalize_region_fragment(region)
+    if not requested:
+        return True
+    if requested == _normalize_region_fragment(op.region):
+        return True
+    return requested in {
+        _normalize_region_fragment(part)
+        for part in op.region.split("/")
+        if _normalize_region_fragment(part)
+    }
 
 
 def _build_alias_index() -> dict[str, Operator]:
@@ -168,7 +203,7 @@ _ALIAS_INDEX: dict[str, Operator] = _build_alias_index()
 
 
 def resolve_operator(query: str, region: str | None = None) -> dict | None:
-    """Resolve a natural-language city or company name to an exact OSD/retailer pair."""
+    """Resolve a natural-language name; an explicit region constrains the result."""
     if not query or not query.strip():
         return None
 
@@ -187,15 +222,36 @@ def resolve_operator(query: str, region: str | None = None) -> dict | None:
                     seen_osds.add(op.osd)
                 break
 
+    if region is not None and region.strip():
+        matched_ops = [op for op in matched_ops if _region_matches(op, region)]
+
     if len(matched_ops) == 1:
         return _operator_to_dict(matched_ops[0])
     if len(matched_ops) > 1:
         return None
 
-    matches = difflib.get_close_matches(q, _ALIAS_INDEX.keys(), n=1, cutoff=0.6)
-    if matches:
-        return _operator_to_dict(_ALIAS_INDEX[matches[0]])
+    # Preserve the old single-best fuzzy behavior when no region was supplied.
+    # With a region constraint, keep multiple fuzzy candidates long enough for
+    # the region to disambiguate them rather than discarding the hint.
+    matches = difflib.get_close_matches(
+        q,
+        _ALIAS_INDEX.keys(),
+        n=5 if region is not None and region.strip() else 1,
+        cutoff=0.6,
+    )
+    fuzzy_ops: list[Operator] = []
+    fuzzy_seen: set[str] = set()
+    for match in matches:
+        op = _ALIAS_INDEX[match]
+        if op.osd in fuzzy_seen:
+            continue
+        if not _region_matches(op, region):
+            continue
+        fuzzy_ops.append(op)
+        fuzzy_seen.add(op.osd)
 
+    if len(fuzzy_ops) == 1:
+        return _operator_to_dict(fuzzy_ops[0])
     return None
 
 
