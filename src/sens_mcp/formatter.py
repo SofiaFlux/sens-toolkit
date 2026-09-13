@@ -34,7 +34,13 @@ def _strip_audit_fields(obj: Any) -> Any:
 
 
 def format_price_response(payload: dict[str, Any], detail_level: str = "summary") -> dict[str, Any]:
-    """Trim a /api/v1/prices JSON payload for the given detail level."""
+    """Trim a /api/v1/prices JSON payload for the given detail level.
+
+    Market requests are a special case for token economy: their requested
+    product is the time series itself. Preserve the market supply slot and FX
+    metadata while continuing to omit ordinary tariff supply/distribution
+    detail in summary mode.
+    """
     if detail_level == "detailed":
         return payload
 
@@ -45,6 +51,7 @@ def format_price_response(payload: dict[str, Any], detail_level: str = "summary"
         "mode": meta.get("mode"),
         "date": meta.get("date"),
         "resolved": meta.get("resolved"),
+        "fx": _strip_audit_fields(meta.get("fx")) if meta.get("fx") is not None else None,
         "last_updated_at": meta.get("last_updated_at") or meta.get("lastUpdatedAt"),
     }
     trimmed["meta"] = {k: v for k, v in trimmed_meta.items() if v is not None}
@@ -59,6 +66,11 @@ def format_price_response(payload: dict[str, Any], detail_level: str = "summary"
             "zones": offer.get("zones"),
             "summary": _strip_audit_fields(summary),
         }
+
+        supply = offer.get("supply")
+        if isinstance(supply, dict) and supply.get("source") == "market":
+            trimmed_offer["supply"] = _strip_audit_fields(supply)
+
         trimmed_offers.append({k: v for k, v in trimmed_offer.items() if v is not None})
     if trimmed_offers:
         trimmed["offers"] = trimmed_offers
