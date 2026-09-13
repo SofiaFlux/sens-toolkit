@@ -233,6 +233,46 @@ class SensClient:
             params={"since": since, "page": page, "size": size},
         )
 
+    async def tariff_exists(self, tariff_id: str) -> bool:
+        """Return whether a tariff id is present in the public catalog.
+
+        The components endpoint is a collection filter and legitimately returns
+        an empty list both for an unknown tariff id and for a known tariff with
+        no component rows.  Only the rare empty-components path needs this
+        catalog walk; normal component lookups incur no extra request.
+        """
+        page = 0
+        page_size = 1000
+        while True:
+            payload = await self.get_tariffs(page=page, size=page_size)
+            rows = payload.get("data") or payload.get("items") or payload.get("content") or []
+            if not isinstance(rows, list):
+                raise SensApiError(
+                    "INVALID_RESPONSE",
+                    "The SENS tariff catalog returned a non-list collection.",
+                    remediation="Retry the request; if it persists, report a backend schema mismatch.",
+                )
+            if any(isinstance(row, dict) and row.get("tariff_id") == tariff_id for row in rows):
+                return True
+
+            total = payload.get("total")
+            if isinstance(total, (int, float)) and not isinstance(total, bool):
+                if (page + 1) * page_size >= int(total):
+                    return False
+            elif len(rows) < page_size:
+                return False
+
+            # A full page with no trustworthy total means another page may
+            # exist. Bound the walk so a malformed upstream envelope cannot
+            # create an infinite MCP call.
+            page += 1
+            if page >= 10_000:
+                raise SensApiError(
+                    "INVALID_RESPONSE",
+                    "The SENS tariff catalog pagination did not terminate.",
+                    remediation="Retry the request; if it persists, report the catalog pagination issue.",
+                )
+
     async def get_tariff_components(self, tariff_id: str, since: str | None = None) -> dict[str, Any]:
         return await self._request(
             "GET",

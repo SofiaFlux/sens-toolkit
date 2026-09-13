@@ -189,6 +189,14 @@ async def get_tariff_components(tariff_id: str, since: str | None = None) -> dic
     client = get_client()
     try:
         payload = await client.get_tariff_components(tariff_id, since=since)
+        rows = payload.get("data") or payload.get("items") or payload.get("content") or []
+        if isinstance(rows, list) and not rows:
+            if not await client.tariff_exists(tariff_id):
+                return SensApiError(
+                    "NOT_FOUND",
+                    f"No public tariff exists with tariff_id '{tariff_id}'.",
+                    remediation="Check the tariff_id in get_tariffs/search results and retry.",
+                ).to_dict()
     except SensApiError as e:
         return e.to_dict()
 
