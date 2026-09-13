@@ -1,0 +1,26 @@
+name: Temporary QA-032 market parity
+
+on:
+  push:
+    branches:
+      - fix/qa-032-market-parity
+    paths:
+      - .github/workflows/qa-032-temp.yml
+      - src/sens_mcp/formatter.py
+      - tests/test_qa032_market_summary.py
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev]'
+      - run: pytest -q tests/test_qa032_market_summary.py
