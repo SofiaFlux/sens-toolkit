@@ -89,10 +89,29 @@ def resolve_operator(query: str, region: str | None = None) -> dict[str, Any]:
     operator) and default retailer strings the SENS API expects.
 
     Example: query="Kraków" or query="enea". Handles typos via fuzzy matching.
+    When `region` is supplied it is a constraint/disambiguator, not a passive hint.
     """
     result = discovery.resolve_operator(query, region=region)
     if result is not None:
         return result
+
+    if region is not None and region.strip():
+        unconstrained = discovery.resolve_operator(query)
+        if unconstrained is not None:
+            actual_region = unconstrained.get("region")
+            return {
+                "status": "error",
+                "error_code": "REGION_MISMATCH",
+                "message": (
+                    f"'{query}' resolves to {unconstrained['osd']} in region "
+                    f"'{actual_region}', which conflicts with requested region '{region}'."
+                ),
+                "suggestions": {
+                    "resolved_operator": unconstrained["osd"],
+                    "actual_region": actual_region,
+                },
+                "remediation": "Remove the region constraint or use one of the operator's declared coverage regions.",
+            }
 
     return _operator_resolution_error(query)
 
