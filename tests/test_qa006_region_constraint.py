@@ -23,8 +23,8 @@ def test_region_disambiguates_a_query_matching_multiple_operators():
     assert result["osd"] == "Energa-Operator S.A."
 
 
-def test_mcp_reports_actionable_region_mismatch():
-    result = server.resolve_operator("Warszawa", region="Pomorskie")
+async def test_mcp_reports_actionable_region_mismatch():
+    result = await server.resolve_operator("Warszawa", region="Pomorskie")
     assert result["status"] == "error"
     assert result["error_code"] == "REGION_MISMATCH"
     assert "Pomorskie" in result["message"]
