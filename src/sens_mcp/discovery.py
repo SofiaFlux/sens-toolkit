@@ -229,8 +229,8 @@ def _live_osd_to_dict(osd: str) -> dict:
 def _resolve_live_osd(query: str, live_osds: list[str] | None) -> dict | None:
     """Resolve against source-faithful OSD names discovered from /tariffs.
 
-    Exact/substring matching is attempted first. A single fuzzy match is then
-    allowed for harmless typography differences such as `Sp. z o.o.` versus
+    Exact/substring matching is attempted first. A single strict fuzzy match is
+    then allowed for harmless typography differences such as `Sp. z o.o.` versus
     source-faithful `Sp. z o. o.`. Multiple live matches are treated as
     ambiguous rather than guessed.
     """
@@ -252,7 +252,7 @@ def _resolve_live_osd(query: str, live_osds: list[str] | None) -> dict | None:
     normalized_to_names: dict[str, list[str]] = {}
     for name in names:
         normalized_to_names.setdefault(_normalize(name), []).append(name)
-    close = difflib.get_close_matches(q, normalized_to_names.keys(), n=5, cutoff=0.6)
+    close = difflib.get_close_matches(q, normalized_to_names.keys(), n=5, cutoff=0.8)
     candidates = {
         name
         for normalized in close
@@ -267,13 +267,14 @@ def resolve_operator(
     query: str,
     region: str | None = None,
     live_osds: list[str] | None = None,
+    allow_fuzzy: bool = True,
 ) -> dict | None:
     """Resolve a natural-language name; an explicit region constrains the result.
 
-    The curated embedded operators remain authoritative for region-aware
-    resolution. If they do not match and no region constraint was requested,
-    source-faithful OSD names from the live tariff catalog are used as a
-    conservative fallback.
+    Curated exact/prefix-style matches are considered first. When live metadata
+    is available, a direct live legal-entity match outranks typo-based embedded
+    matching. `allow_fuzzy=False` exposes the high-confidence embedded fast path
+    used by the MCP tool before deciding whether it needs a metadata refresh.
     """
     if not query or not query.strip():
         return None
@@ -287,7 +288,11 @@ def resolve_operator(
             candidates.append(op.default_retailer)
         for cand in candidates:
             cand_n = _normalize(cand)
-            if q == cand_n or q in cand_n or cand_n in q:
+            # Query-as-prefix/substring is useful for short aliases (e.g. `ene`
+            # deliberately matches Enea + Energa and becomes ambiguous). The
+            # reverse direction is unsafe: `enea` must not prove that `eneax`
+            # is the same legal entity.
+            if q == cand_n or q in cand_n:
                 if op.osd not in seen_osds:
                     matched_ops.append(op)
                     seen_osds.add(op.osd)
@@ -299,6 +304,18 @@ def resolve_operator(
     if len(matched_ops) == 1:
         return _operator_to_dict(matched_ops[0])
     if len(matched_ops) > 1:
+        return None
+
+    # A live catalog identity is stronger evidence than a typo-distance guess
+    # against the five embedded fallbacks. Region-constrained live resolution is
+    # intentionally not attempted because the catalog does not carry an
+    # authoritative operator coverage map.
+    if region is None or not region.strip():
+        live_match = _resolve_live_osd(query, live_osds)
+        if live_match is not None:
+            return live_match
+
+    if not allow_fuzzy:
         return None
 
     # Keep typo tolerance deliberately strict. At 0.6, a previously unknown
@@ -324,8 +341,6 @@ def resolve_operator(
 
     if len(fuzzy_ops) == 1:
         return _operator_to_dict(fuzzy_ops[0])
-    if region is None or not region.strip():
-        return _resolve_live_osd(query, live_osds)
     return None
 
 
