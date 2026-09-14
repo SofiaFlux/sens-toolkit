@@ -89,13 +89,18 @@ async def test_get_prices_maps_500_to_structured_error():
     assert result["error_code"] == "UPSTREAM_ERROR"
 
 
-def test_resolve_operator_tool_success():
-    result = server.resolve_operator(query="enea")
+async def test_resolve_operator_tool_success():
+    result = await server.resolve_operator(query="enea")
     assert result["osd"] == "Enea Operator Sp. z o.o."
 
 
-def test_resolve_operator_tool_unresolvable_error_shape():
-    result = server.resolve_operator(query="xqzwv frobnicate qqqjjj")
+@respx.mock
+async def test_resolve_operator_tool_unresolvable_error_shape():
+    respx.get("https://api.getsens.energy/api/v1/tariffs").mock(
+        return_value=httpx.Response(200, json={"items": []})
+    )
+
+    result = await server.resolve_operator(query="xqzwv frobnicate qqqjjj")
     assert result["status"] == "error"
     assert result["error_code"] == "UNRESOLVABLE_OPERATOR"
     assert "known_osds" in result["suggestions"]
