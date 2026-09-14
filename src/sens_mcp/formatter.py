@@ -34,22 +34,36 @@ def _strip_audit_fields(obj: Any) -> Any:
 
 
 def format_price_response(payload: dict[str, Any], detail_level: str = "summary") -> dict[str, Any]:
-    """Trim a /api/v1/prices JSON payload for the given detail level."""
+    """Trim a /api/v1/prices JSON payload for the given detail level.
+
+    Ordinary tariff responses intentionally omit verbose supply/distribution slots in
+    summary mode. Market responses are different: the market supply slot (series,
+    granularity and points) and FX metadata *are the requested product*, not audit
+    detail, so dropping them would make MCP disagree with REST and make RDN/RCE data
+    unusable in the default MCP response.
+    """
     if detail_level == "detailed":
         return payload
 
     trimmed: dict[str, Any] = {}
 
     meta = payload.get("meta") or {}
+    offers = payload.get("offers") or []
+    is_market_mode = (
+        meta.get("mode") in {"market_only", "market_pair"}
+        or any((offer.get("supply") or {}).get("source") == "market" for offer in offers)
+    )
+
     trimmed_meta = {
         "mode": meta.get("mode"),
         "date": meta.get("date"),
         "resolved": meta.get("resolved"),
         "last_updated_at": meta.get("last_updated_at") or meta.get("lastUpdatedAt"),
     }
+    if is_market_mode and meta.get("fx") is not None:
+        trimmed_meta["fx"] = _strip_audit_fields(meta["fx"])
     trimmed["meta"] = {k: v for k, v in trimmed_meta.items() if v is not None}
 
-    offers = payload.get("offers") or []
     trimmed_offers = []
     for offer in offers:
         summary = offer.get("summary") or {}
@@ -59,6 +73,9 @@ def format_price_response(payload: dict[str, Any], detail_level: str = "summary"
             "zones": offer.get("zones"),
             "summary": _strip_audit_fields(summary),
         }
+        supply = offer.get("supply") or {}
+        if is_market_mode and supply.get("source") == "market":
+            trimmed_offer["supply"] = _strip_audit_fields(supply)
         trimmed_offers.append({k: v for k, v in trimmed_offer.items() if v is not None})
     if trimmed_offers:
         trimmed["offers"] = trimmed_offers
