@@ -41,9 +41,13 @@ def _malformed_response_error(exc: Exception) -> dict[str, Any]:
     }
 
 
-def _operator_resolution_error(query: str, example_valid_call: str | None = None) -> dict[str, Any]:
+def _operator_resolution_error(
+    query: str,
+    example_valid_call: str | None = None,
+    live_osds: list[str] | None = None,
+) -> dict[str, Any]:
     """Shared AMBIGUOUS_OPERATOR / UNRESOLVABLE_OPERATOR error shape."""
-    candidates = discovery.resolve_operator_candidates(query)
+    candidates = discovery.resolve_operator_candidates(query, live_osds=live_osds)
     if candidates:
         return {
             "status": "error",
@@ -56,14 +60,18 @@ def _operator_resolution_error(query: str, example_valid_call: str | None = None
             "example_valid_call": example_valid_call or f"resolve_operator(query='{candidates[0]}')",
         }
 
+    known_osds = [op.osd for op in discovery.OPERATORS]
+    for osd in live_osds or []:
+        if osd not in known_osds:
+            known_osds.append(osd)
     return {
         "status": "error",
         "error_code": "UNRESOLVABLE_OPERATOR",
         "message": f"Could not resolve '{query}' to any known OSD or retailer.",
         "suggestions": {
-            "known_osds": [op.osd for op in discovery.OPERATORS],
+            "known_osds": known_osds,
         },
-        "remediation": "Check sens://market/cheat-sheet for the full list of supported operators.",
+        "remediation": "Check sens://market/cheat-sheet or the live tariff catalog for supported operators.",
     }
 
 
@@ -84,17 +92,22 @@ def market_cheat_sheet() -> str:
 
 
 @mcp.tool()
-def resolve_operator(query: str, region: str | None = None) -> dict[str, Any]:
+async def resolve_operator(query: str, region: str | None = None) -> dict[str, Any]:
     """Resolve a natural-language city or company name to the exact OSD (distribution
     operator) and default retailer strings the SENS API expects.
 
     Example: query="Kraków" or query="enea". Handles typos via fuzzy matching.
     When `region` is supplied it is a constraint/disambiguator, not a passive hint.
+    Curated major operators resolve offline; otherwise the tool falls back to OSD
+    names discovered from the live SENS tariff catalog.
     """
+    # Preserve the zero-network fast path for the curated fallback operators.
     result = discovery.resolve_operator(query, region=region)
     if result is not None:
         return result
 
+    # A known curated operator with a conflicting region should retain the
+    # dedicated REGION_MISMATCH result without needing a metadata request.
     if region is not None and region.strip():
         unconstrained = discovery.resolve_operator(query)
         if unconstrained is not None:
@@ -113,7 +126,14 @@ def resolve_operator(query: str, region: str | None = None) -> dict[str, Any]:
                 "remediation": "Remove the region constraint or use one of the operator's declared coverage regions.",
             }
 
-    return _operator_resolution_error(query)
+    client = get_client()
+    await client.ensure_metadata()
+    live_osds = client.known_osd_names
+    result = discovery.resolve_operator(query, region=region, live_osds=live_osds)
+    if result is not None:
+        return result
+
+    return _operator_resolution_error(query, live_osds=live_osds)
 
 
 @mcp.tool()
