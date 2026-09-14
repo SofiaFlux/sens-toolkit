@@ -3,9 +3,9 @@
 This module is the embedded fallback schema: it works with zero network calls,
 so the MCP server can boot instantly and answer discovery questions (operator
 resolution, tariff search, the cheat-sheet resource) before — or even without —
-ever reaching the live SENS API. `client.py` refreshes tariff codes from the
-live API in the background and `resolve_operator`/`search_tariffs` fold that
-data in when it is available, but never block on it.
+ever reaching the live SENS API. `client.py` refreshes tariff/operator metadata
+from the live API in the background and `resolve_operator`/`search_tariffs` fold
+that data in when it is available, but never block the static fallback itself.
 """
 
 from __future__ import annotations
@@ -117,6 +117,9 @@ exact values the API expects.
 | Energa-Operator S.A. | ENERGA-OBRÓT S.A. | Pomorskie / Warmińsko-Mazurskie / part of Kujawsko-Pomorskie |
 | Stoen Operator Sp. z o.o. | *(none available)* | Warszawa (city) |
 
+The table above is the embedded offline fallback. When the live SENS catalog is
+reachable, `resolve_operator` also discovers additional OSD names from it.
+
 ## Tariff groups
 The list below is the embedded offline fallback of common groups. `search_tariffs`
 also folds in additional tariff codes discovered from the live SENS catalog when
@@ -202,8 +205,76 @@ def _build_alias_index() -> dict[str, Operator]:
 _ALIAS_INDEX: dict[str, Operator] = _build_alias_index()
 
 
-def resolve_operator(query: str, region: str | None = None) -> dict | None:
-    """Resolve a natural-language name; an explicit region constrains the result."""
+def _clean_live_osds(live_osds: list[str] | None) -> list[str]:
+    return sorted(
+        {
+            value.strip()
+            for value in (live_osds or [])
+            if isinstance(value, str) and value.strip()
+        },
+        key=str.casefold,
+    )
+
+
+def _live_osd_to_dict(osd: str) -> dict:
+    """Return the common resolver shape without inventing unavailable metadata."""
+    return {
+        "osd": osd,
+        "default_retailer": None,
+        "region": None,
+        "supported_tariff_groups": [],
+    }
+
+
+def _resolve_live_osd(query: str, live_osds: list[str] | None) -> dict | None:
+    """Resolve against source-faithful OSD names discovered from /tariffs.
+
+    Exact/substring matching is attempted first. A single fuzzy match is then
+    allowed for harmless typography differences such as `Sp. z o.o.` versus
+    source-faithful `Sp. z o. o.`. Multiple live matches are treated as
+    ambiguous rather than guessed.
+    """
+    names = _clean_live_osds(live_osds)
+    if not names:
+        return None
+
+    q = _normalize(query)
+    direct = [
+        name
+        for name in names
+        if q == _normalize(name) or q in _normalize(name) or _normalize(name) in q
+    ]
+    if len(direct) == 1:
+        return _live_osd_to_dict(direct[0])
+    if len(direct) > 1:
+        return None
+
+    normalized_to_names: dict[str, list[str]] = {}
+    for name in names:
+        normalized_to_names.setdefault(_normalize(name), []).append(name)
+    close = difflib.get_close_matches(q, normalized_to_names.keys(), n=5, cutoff=0.6)
+    candidates = {
+        name
+        for normalized in close
+        for name in normalized_to_names[normalized]
+    }
+    if len(candidates) == 1:
+        return _live_osd_to_dict(next(iter(candidates)))
+    return None
+
+
+def resolve_operator(
+    query: str,
+    region: str | None = None,
+    live_osds: list[str] | None = None,
+) -> dict | None:
+    """Resolve a natural-language name; an explicit region constrains the result.
+
+    The curated embedded operators remain authoritative for region-aware
+    resolution. If they do not match and no region constraint was requested,
+    source-faithful OSD names from the live tariff catalog are used as a
+    conservative fallback.
+    """
     if not query or not query.strip():
         return None
 
@@ -252,11 +323,17 @@ def resolve_operator(query: str, region: str | None = None) -> dict | None:
 
     if len(fuzzy_ops) == 1:
         return _operator_to_dict(fuzzy_ops[0])
+    if region is None or not region.strip():
+        return _resolve_live_osd(query, live_osds)
     return None
 
 
-def resolve_operator_candidates(query: str, n: int = 3) -> list[str]:
-    """Return up to n close alias matches for use in error-message suggestions."""
+def resolve_operator_candidates(
+    query: str,
+    n: int = 3,
+    live_osds: list[str] | None = None,
+) -> list[str]:
+    """Return up to n close OSD matches for use in error-message suggestions."""
     if not query or not query.strip():
         return []
     q = _normalize(query)
@@ -266,7 +343,24 @@ def resolve_operator_candidates(query: str, n: int = 3) -> list[str]:
         osd = _ALIAS_INDEX[m].osd
         if osd not in seen:
             seen.append(osd)
-    return seen
+
+    live_names = _clean_live_osds(live_osds)
+    live_norm = {_normalize(name): name for name in live_names}
+    direct_live = [
+        name
+        for name in live_names
+        if q in _normalize(name) or _normalize(name) in q
+    ]
+    fuzzy_live = [
+        live_norm[value]
+        for value in difflib.get_close_matches(q, live_norm.keys(), n=n, cutoff=0.4)
+    ]
+    for osd in [*direct_live, *fuzzy_live]:
+        if osd not in seen:
+            seen.append(osd)
+        if len(seen) >= n:
+            break
+    return seen[:n]
 
 
 def _operator_to_dict(op: Operator) -> dict:
