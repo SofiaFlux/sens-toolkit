@@ -24,6 +24,19 @@ _AUDIT_FIELD_NAMES = {
     "db_id",
 }
 
+# QA-032: in market modes the supply slot is not verbose tariff plumbing; it IS
+# the requested product. Preserve exactly the market facts declared by the
+# REST↔MCP parity contract while keeping ordinary tariff supply/distribution
+# slots omitted in summary mode for token economy.
+_MARKET_SUPPLY_FIELDS = {
+    "source",
+    "market",
+    "series",
+    "granularity",
+    "currency_conversion",
+    "points",
+}
+
 
 def _strip_audit_fields(obj: Any) -> Any:
     if isinstance(obj, dict):
@@ -31,6 +44,17 @@ def _strip_audit_fields(obj: Any) -> Any:
     if isinstance(obj, list):
         return [_strip_audit_fields(v) for v in obj]
     return obj
+
+
+def _market_supply_summary(supply: Any) -> dict[str, Any] | None:
+    if not isinstance(supply, dict) or supply.get("source") != "market":
+        return None
+    compact = {
+        k: _strip_audit_fields(v)
+        for k, v in supply.items()
+        if k in _MARKET_SUPPLY_FIELDS and v is not None
+    }
+    return compact or None
 
 
 def format_price_response(payload: dict[str, Any], detail_level: str = "summary") -> dict[str, Any]:
@@ -41,11 +65,16 @@ def format_price_response(payload: dict[str, Any], detail_level: str = "summary"
     trimmed: dict[str, Any] = {}
 
     meta = payload.get("meta") or {}
+    resolved = meta.get("resolved") or {}
+    is_market_mode = bool(resolved.get("market")) or meta.get("mode") in {"market_pair", "market_only"}
     trimmed_meta = {
         "mode": meta.get("mode"),
         "date": meta.get("date"),
         "resolved": meta.get("resolved"),
         "last_updated_at": meta.get("last_updated_at") or meta.get("lastUpdatedAt"),
+        # FX is a shared market fact (e.g. ENTSO-E EUR/MWh -> PLN/kWh via NBP),
+        # not generic audit metadata. It stays omitted for ordinary tariff modes.
+        "fx": _strip_audit_fields(meta.get("fx")) if is_market_mode and meta.get("fx") is not None else None,
     }
     trimmed["meta"] = {k: v for k, v in trimmed_meta.items() if v is not None}
 
@@ -53,11 +82,13 @@ def format_price_response(payload: dict[str, Any], detail_level: str = "summary"
     trimmed_offers = []
     for offer in offers:
         summary = offer.get("summary") or {}
+        market_supply = _market_supply_summary(offer.get("supply"))
         trimmed_offer = {
             "tariff_code": offer.get("tariff_code"),
             "region": offer.get("region"),
             "zones": offer.get("zones"),
             "summary": _strip_audit_fields(summary),
+            "supply": market_supply,
         }
         trimmed_offers.append({k: v for k, v in trimmed_offer.items() if v is not None})
     if trimmed_offers:
