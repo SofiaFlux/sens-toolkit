@@ -27,7 +27,7 @@ jobs:
       - name: Run QA-005/006/032 compatibility regression
         run: |
           pytest -q \
-            tests/test_qa005_component_not_found.py \
+            tests/test_qa005_tariff_components_not_found.py \
             tests/test_qa006_region_constraint.py \
             tests/test_qa032_market_parity.py \
             tests/test_formatter.py \
