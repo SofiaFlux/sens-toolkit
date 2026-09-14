@@ -9,6 +9,14 @@ POLENERGIA_RAW = "POLENERGIA Dystrybucja Sp. z o. o."
 POLENERGIA_CANONICAL = "POLENERGIA Dystrybucja Sp. z o.o."
 
 
+def test_qa031_unknown_polenergia_never_guesses_an_embedded_operator():
+    """Without live metadata, a missing OSD is safer as unresolved than as the
+    wrong company. In particular POLENERGIA must never fuzzy-resolve to Energa.
+    """
+    assert discovery.resolve_operator("polenergia") is None
+    assert discovery.resolve_operator(POLENERGIA_CANONICAL) is None
+
+
 def test_qa031_discovery_resolves_legal_form_variant_from_live_catalog():
     """A source-faithful `o. o.` spelling must still be discoverable from the
     conventional `o.o.` spelling when the operator comes from live metadata.
