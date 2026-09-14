@@ -1,4 +1,5 @@
 from sens_mcp.formatter import format_price_response
+from sens_mcp.models import PriceResponse
 
 
 def _market_payload():
@@ -35,7 +36,8 @@ def _market_payload():
 
 
 def test_market_summary_keeps_fx_and_market_series_because_they_are_the_requested_product():
-    formatted = format_price_response(_market_payload(), detail_level="summary")
+    parsed_payload = PriceResponse.model_validate(_market_payload()).model_dump()
+    formatted = format_price_response(parsed_payload, detail_level="summary")
 
     assert formatted["meta"]["fx"] == {
         "pair": "EUR/PLN",
