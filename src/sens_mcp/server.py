@@ -98,18 +98,20 @@ async def resolve_operator(query: str, region: str | None = None) -> dict[str, A
 
     Example: query="Kraków" or query="enea". Handles typos via fuzzy matching.
     When `region` is supplied it is a constraint/disambiguator, not a passive hint.
-    Curated major operators resolve offline; otherwise the tool falls back to OSD
-    names discovered from the live SENS tariff catalog.
+    Curated high-confidence operator aliases resolve offline; lower-confidence
+    matches consult the live SENS tariff catalog before typo-based fallback.
     """
-    # Preserve the zero-network fast path for the curated fallback operators.
-    result = discovery.resolve_operator(query, region=region)
+    # Preserve a zero-network fast path only for high-confidence embedded
+    # identity matches. Typo-distance matching is intentionally delayed until
+    # live catalog identities have had a chance to match.
+    result = discovery.resolve_operator(query, region=region, allow_fuzzy=False)
     if result is not None:
         return result
 
     # A known curated operator with a conflicting region should retain the
     # dedicated REGION_MISMATCH result without needing a metadata request.
     if region is not None and region.strip():
-        unconstrained = discovery.resolve_operator(query)
+        unconstrained = discovery.resolve_operator(query, allow_fuzzy=False)
         if unconstrained is not None:
             actual_region = unconstrained.get("region")
             return {
