@@ -2,9 +2,8 @@
 
 Implements the non-blocking lazy initialization strategy from design spec
 §5: the server boots instantly using the embedded fallback schema in
-`discovery.py`, and this client refreshes live tariff metadata (used to
-improve fuzzy-matching against real tariff codes) in the background on the
-first real tool call rather than blocking startup.
+`discovery.py`, and this client refreshes live tariff/operator metadata in the
+background on the first real tool call rather than blocking startup.
 
 Also centralizes structured-error mapping for real HTTP failures
 (401/403/timeout/5xx) so raw httpx exceptions never reach the MCP client.
@@ -53,6 +52,7 @@ class SensClient:
         self._client: httpx.AsyncClient | None = None
         self._metadata_task: asyncio.Task | None = None
         self._known_tariff_codes: list[str] | None = None
+        self._known_osd_names: list[str] | None = None
         self._metadata_lock = asyncio.Lock()
 
     def _headers(self) -> dict[str, str]:
@@ -117,19 +117,33 @@ class SensClient:
             # mocked responses instead of silently treating live metadata as empty.
             items = data.get("data") or data.get("items") or data.get("content") or []
             codes = sorted({row.get("tariff_code") for row in items if isinstance(row, dict) and row.get("tariff_code")})
+            osd_names = sorted(
+                {
+                    row.get("operator_name").strip()
+                    for row in items
+                    if isinstance(row, dict)
+                    and isinstance(row.get("operator_name"), str)
+                    and row.get("operator_name").strip()
+                    and str(row.get("operator_type", "")).upper() == "OSD"
+                },
+                key=str.casefold,
+            )
             self._known_tariff_codes = codes
+            self._known_osd_names = osd_names
         except Exception:  # noqa: BLE001, S110 - deliberately broad and silent, see comment below
             # Background refresh failures must never surface as a hard error —
             # discovery.py's embedded fallback schema keeps working either way.
-            # Leave _known_tariff_codes as None (not []) so a later call can
-            # retry rather than permanently caching the failure as "loaded
-            # empty" ([] is not None is always True, which would disable all
-            # future refresh attempts for the client's lifetime).
+            # Leave metadata as None so a later call can retry rather than
+            # permanently caching the failure as "loaded empty".
             pass
 
     @property
     def known_tariff_codes(self) -> list[str]:
         return self._known_tariff_codes or []
+
+    @property
+    def known_osd_names(self) -> list[str]:
+        return self._known_osd_names or []
 
     async def _request(self, method: str, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         client = self._ensure_client()
@@ -238,7 +252,7 @@ class SensClient:
 
         The components endpoint is a collection filter and legitimately returns
         an empty list both for an unknown tariff id and for a known tariff with
-        no component rows.  Only the rare empty-components path needs this
+        no component rows. Only the rare empty-components path needs this
         catalog walk; normal component lookups incur no extra request.
         """
         page = 0
