@@ -301,14 +301,15 @@ def resolve_operator(
     if len(matched_ops) > 1:
         return None
 
-    # Preserve the old single-best fuzzy behavior when no region was supplied.
-    # With a region constraint, keep multiple fuzzy candidates long enough for
-    # the region to disambiguate them rather than discarding the hint.
+    # Keep typo tolerance deliberately strict. At 0.6, a previously unknown
+    # company such as POLENERGIA was incorrectly substituted with Energa/PGE.
+    # 0.8 still covers intended transposition typos such as tauorn -> tauron
+    # while preferring unresolved over returning another legal entity.
     matches = difflib.get_close_matches(
         q,
         _ALIAS_INDEX.keys(),
         n=5 if region is not None and region.strip() else 1,
-        cutoff=0.6,
+        cutoff=0.8,
     )
     fuzzy_ops: list[Operator] = []
     fuzzy_seen: set[str] = set()
