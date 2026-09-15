@@ -49,6 +49,25 @@ async def test_metadata_refresh_retries_after_transient_failure():
 
 
 @respx.mock
+async def test_metadata_refresh_reads_live_api_data_envelope():
+    """The deployed /api/v1/tariffs collection uses the public `data` envelope.
+    Metadata refresh must not silently cache an empty catalog when that envelope is used.
+    """
+    client = SensClient(base_url="https://api.getsens.energy", api_key="k")
+    respx.get("https://api.getsens.energy/api/v1/tariffs").mock(
+        return_value=httpx.Response(
+            200,
+            json={"data": [{"tariff_code": "G12as"}, {"tariff_code": "C11em"}]},
+        )
+    )
+
+    await client.ensure_metadata()
+
+    assert client.known_tariff_codes == ["C11em", "G12as"]
+    await client.aclose()
+
+
+@respx.mock
 async def test_aclose_awaits_cancelled_background_task():
     """Regression test: aclose() used to cancel the background metadata task
     and immediately close the shared httpx client on the next line, without

@@ -43,7 +43,6 @@ async def test_get_prices_success_summary_mode():
             },
         )
     )
-    # /api/v1/tariffs is hit by the lazy background metadata refresh.
     respx.get("https://api.getsens.energy/api/v1/tariffs").mock(
         return_value=httpx.Response(200, json={"items": []})
     )
@@ -55,7 +54,6 @@ async def test_get_prices_success_summary_mode():
     assert result["offers"][0]["tariff_code"] == "G12w"
     assert "source_value" not in result["offers"][0]["summary"]
 
-    # X-API-KEY header, not Bearer/query param.
     request = route.calls.last.request
     assert request.headers["X-API-KEY"] == "test-key-123"
 
@@ -91,43 +89,58 @@ async def test_get_prices_maps_500_to_structured_error():
     assert result["error_code"] == "UPSTREAM_ERROR"
 
 
-def test_resolve_operator_tool_success():
-    result = server.resolve_operator(query="enea")
+async def test_resolve_operator_tool_success():
+    result = await server.resolve_operator(query="enea")
     assert result["osd"] == "Enea Operator Sp. z o.o."
 
 
-def test_resolve_operator_tool_unresolvable_error_shape():
-    result = server.resolve_operator(query="xqzwv frobnicate qqqjjj")
+@respx.mock
+async def test_resolve_operator_tool_unresolvable_error_shape():
+    respx.get("https://api.getsens.energy/api/v1/tariffs").mock(
+        return_value=httpx.Response(200, json={"items": []})
+    )
+
+    result = await server.resolve_operator(query="xqzwv frobnicate qqqjjj")
     assert result["status"] == "error"
     assert result["error_code"] == "UNRESOLVABLE_OPERATOR"
     assert "known_osds" in result["suggestions"]
 
 
-def test_search_tariffs_tool_success():
-    result = server.search_tariffs(customer_type="home", zone_preference="1-zone")
+async def test_search_tariffs_tool_success():
+    result = await server.search_tariffs(customer_type="home", zone_preference="1-zone")
     assert result["status"] == "ok"
     codes = {t["code"] for t in result["tariffs"]}
     assert codes == {"G11"}
 
 
-def test_search_tariffs_tool_bad_operator_error_shape():
-    # Zero fuzzy candidates for this query -> UNRESOLVABLE_OPERATOR, matching
-    # resolve_operator's behavior for the same input. Regression test for the
-    # bug where search_tariffs always returned AMBIGUOUS_OPERATOR even when
-    # no candidates existed.
-    result = server.search_tariffs(customer_type="home", operator="xqzwv frobnicate qqqjjj")
+async def test_search_tariffs_tool_bad_operator_error_shape():
+    result = await server.search_tariffs(customer_type="home", operator="xqzwv frobnicate qqqjjj")
     assert result["status"] == "error"
     assert result["error_code"] == "UNRESOLVABLE_OPERATOR"
     assert "known_osds" in result["suggestions"]
 
 
-def test_search_tariffs_tool_ambiguous_operator_error_shape():
-    # "ene" is a substring of both Enea's and Energa-Operator's aliases.
-    result = server.search_tariffs(customer_type="home", operator="ene")
+async def test_search_tariffs_tool_ambiguous_operator_error_shape():
+    result = await server.search_tariffs(customer_type="home", operator="ene")
     assert result["status"] == "error"
     assert result["error_code"] == "AMBIGUOUS_OPERATOR"
     assert "Enea Operator Sp. z o.o." in result["suggestions"]["did_you_mean"]
     assert "Energa-Operator S.A." in result["suggestions"]["did_you_mean"]
+
+
+@respx.mock
+async def test_search_tariffs_folds_in_live_catalog_metadata():
+    """SENS-QA-20260910-023: the MCP tool should enrich its embedded fallback
+    with codes that the live tariff catalog actually serves.
+    """
+    respx.get("https://api.getsens.energy/api/v1/tariffs").mock(
+        return_value=httpx.Response(200, json={"data": [{"tariff_code": "G12as"}]})
+    )
+
+    result = await server.search_tariffs(customer_type="home")
+
+    assert result["status"] == "ok"
+    assert "G12as" in {row["code"] for row in result["tariffs"]}
 
 
 def test_cheat_sheet_resource_mentions_tariff_groups():
@@ -138,9 +151,6 @@ def test_cheat_sheet_resource_mentions_tariff_groups():
 
 @respx.mock
 async def test_get_prices_malformed_offer_shape_returns_structured_error():
-    # Regression test: a malformed 200 response (offer entry is not an
-    # object) must not raise a raw AttributeError/TypeError to the MCP
-    # client — it should be mapped to a structured MALFORMED_RESPONSE error.
     respx.get("https://api.getsens.energy/api/v1/tariffs").mock(
         return_value=httpx.Response(200, json={"items": []})
     )

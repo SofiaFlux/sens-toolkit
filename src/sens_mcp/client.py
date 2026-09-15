@@ -2,9 +2,8 @@
 
 Implements the non-blocking lazy initialization strategy from design spec
 §5: the server boots instantly using the embedded fallback schema in
-`discovery.py`, and this client refreshes live tariff metadata (used to
-improve fuzzy-matching against real tariff codes) in the background on the
-first real tool call rather than blocking startup.
+`discovery.py`, and this client refreshes live tariff/operator metadata in the
+background on the first real tool call rather than blocking startup.
 
 Also centralizes structured-error mapping for real HTTP failures
 (401/403/timeout/5xx) so raw httpx exceptions never reach the MCP client.
@@ -53,6 +52,7 @@ class SensClient:
         self._client: httpx.AsyncClient | None = None
         self._metadata_task: asyncio.Task | None = None
         self._known_tariff_codes: list[str] | None = None
+        self._known_osd_names: list[str] | None = None
         self._metadata_lock = asyncio.Lock()
 
     def _headers(self) -> dict[str, str]:
@@ -112,21 +112,38 @@ class SensClient:
     async def _refresh_metadata(self) -> None:
         try:
             data = await self._request("GET", "/api/v1/tariffs", params={"size": 1000, "page": 0})
-            items = data.get("items") or data.get("content") or []
+            # The public SENS collection envelope is `data`; keep the older
+            # `items`/`content` aliases for compatibility with pre-release and
+            # mocked responses instead of silently treating live metadata as empty.
+            items = data.get("data") or data.get("items") or data.get("content") or []
             codes = sorted({row.get("tariff_code") for row in items if isinstance(row, dict) and row.get("tariff_code")})
+            osd_names = sorted(
+                {
+                    row.get("operator_name").strip()
+                    for row in items
+                    if isinstance(row, dict)
+                    and isinstance(row.get("operator_name"), str)
+                    and row.get("operator_name").strip()
+                    and str(row.get("operator_type", "")).upper() == "OSD"
+                },
+                key=str.casefold,
+            )
             self._known_tariff_codes = codes
+            self._known_osd_names = osd_names
         except Exception:  # noqa: BLE001, S110 - deliberately broad and silent, see comment below
             # Background refresh failures must never surface as a hard error —
             # discovery.py's embedded fallback schema keeps working either way.
-            # Leave _known_tariff_codes as None (not []) so a later call can
-            # retry rather than permanently caching the failure as "loaded
-            # empty" ([] is not None is always True, which would disable all
-            # future refresh attempts for the client's lifetime).
+            # Leave metadata as None so a later call can retry rather than
+            # permanently caching the failure as "loaded empty".
             pass
 
     @property
     def known_tariff_codes(self) -> list[str]:
         return self._known_tariff_codes or []
+
+    @property
+    def known_osd_names(self) -> list[str]:
+        return self._known_osd_names or []
 
     async def _request(self, method: str, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         client = self._ensure_client()
@@ -194,7 +211,7 @@ class SensClient:
         taryfa: str | None = None,
         market: str | None = None,
         date: str | None = None,
-        annual_kwh: float | None = None,
+        annual_kwh: int | None = None,
         region: str | None = None,
         since: str | None = None,
         page: int = 0,
@@ -229,6 +246,46 @@ class SensClient:
             "/api/v1/tariffs",
             params={"since": since, "page": page, "size": size},
         )
+
+    async def tariff_exists(self, tariff_id: str) -> bool:
+        """Return whether a tariff id is present in the public catalog.
+
+        The components endpoint is a collection filter and legitimately returns
+        an empty list both for an unknown tariff id and for a known tariff with
+        no component rows. Only the rare empty-components path needs this
+        catalog walk; normal component lookups incur no extra request.
+        """
+        page = 0
+        page_size = 1000
+        while True:
+            payload = await self.get_tariffs(page=page, size=page_size)
+            rows = payload.get("data") or payload.get("items") or payload.get("content") or []
+            if not isinstance(rows, list):
+                raise SensApiError(
+                    "INVALID_RESPONSE",
+                    "The SENS tariff catalog returned a non-list collection.",
+                    remediation="Retry the request; if it persists, report a backend schema mismatch.",
+                )
+            if any(isinstance(row, dict) and row.get("tariff_id") == tariff_id for row in rows):
+                return True
+
+            total = payload.get("total")
+            if isinstance(total, (int, float)) and not isinstance(total, bool):
+                if (page + 1) * page_size >= int(total):
+                    return False
+            elif len(rows) < page_size:
+                return False
+
+            # A full page with no trustworthy total means another page may
+            # exist. Bound the walk so a malformed upstream envelope cannot
+            # create an infinite MCP call.
+            page += 1
+            if page >= 10_000:
+                raise SensApiError(
+                    "INVALID_RESPONSE",
+                    "The SENS tariff catalog pagination did not terminate.",
+                    remediation="Retry the request; if it persists, report the catalog pagination issue.",
+                )
 
     async def get_tariff_components(self, tariff_id: str, since: str | None = None) -> dict[str, Any]:
         return await self._request(

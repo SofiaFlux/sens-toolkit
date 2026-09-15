@@ -41,14 +41,13 @@ def _malformed_response_error(exc: Exception) -> dict[str, Any]:
     }
 
 
-def _operator_resolution_error(query: str, example_valid_call: str | None = None) -> dict[str, Any]:
-    """Shared AMBIGUOUS_OPERATOR / UNRESOLVABLE_OPERATOR error shape.
-
-    Used by both `resolve_operator` and `search_tariffs` so a failed operator
-    resolution always yields the same error_code/suggestions for the same
-    input, regardless of which tool triggered it.
-    """
-    candidates = discovery.resolve_operator_candidates(query)
+def _operator_resolution_error(
+    query: str,
+    example_valid_call: str | None = None,
+    live_osds: list[str] | None = None,
+) -> dict[str, Any]:
+    """Shared AMBIGUOUS_OPERATOR / UNRESOLVABLE_OPERATOR error shape."""
+    candidates = discovery.resolve_operator_candidates(query, live_osds=live_osds)
     if candidates:
         return {
             "status": "error",
@@ -61,14 +60,18 @@ def _operator_resolution_error(query: str, example_valid_call: str | None = None
             "example_valid_call": example_valid_call or f"resolve_operator(query='{candidates[0]}')",
         }
 
+    known_osds = [op.osd for op in discovery.OPERATORS]
+    for osd in live_osds or []:
+        if osd not in known_osds:
+            known_osds.append(osd)
     return {
         "status": "error",
         "error_code": "UNRESOLVABLE_OPERATOR",
         "message": f"Could not resolve '{query}' to any known OSD or retailer.",
         "suggestions": {
-            "known_osds": [op.osd for op in discovery.OPERATORS],
+            "known_osds": known_osds,
         },
-        "remediation": "Check sens://market/cheat-sheet for the full list of supported operators.",
+        "remediation": "Check sens://market/cheat-sheet or the live tariff catalog for supported operators.",
     }
 
 
@@ -89,28 +92,62 @@ def market_cheat_sheet() -> str:
 
 
 @mcp.tool()
-def resolve_operator(query: str, region: str | None = None) -> dict[str, Any]:
+async def resolve_operator(query: str, region: str | None = None) -> dict[str, Any]:
     """Resolve a natural-language city or company name to the exact OSD (distribution
     operator) and default retailer strings the SENS API expects.
 
     Example: query="Kraków" or query="enea". Handles typos via fuzzy matching.
+    When `region` is supplied it is a constraint/disambiguator, not a passive hint.
+    Curated high-confidence operator aliases resolve offline; lower-confidence
+    matches consult the live SENS tariff catalog before typo-based fallback.
     """
-    result = discovery.resolve_operator(query, region=region)
+    # Preserve a zero-network fast path only for high-confidence embedded
+    # identity matches. Typo-distance matching is intentionally delayed until
+    # live catalog identities have had a chance to match.
+    result = discovery.resolve_operator(query, region=region, allow_fuzzy=False)
     if result is not None:
         return result
 
-    return _operator_resolution_error(query)
+    # A known curated operator with a conflicting region should retain the
+    # dedicated REGION_MISMATCH result without needing a metadata request.
+    if region is not None and region.strip():
+        unconstrained = discovery.resolve_operator(query, allow_fuzzy=False)
+        if unconstrained is not None:
+            actual_region = unconstrained.get("region")
+            return {
+                "status": "error",
+                "error_code": "REGION_MISMATCH",
+                "message": (
+                    f"'{query}' resolves to {unconstrained['osd']} in region "
+                    f"'{actual_region}', which conflicts with requested region '{region}'."
+                ),
+                "suggestions": {
+                    "resolved_operator": unconstrained["osd"],
+                    "actual_region": actual_region,
+                },
+                "remediation": "Remove the region constraint or use one of the operator's declared coverage regions.",
+            }
+
+    client = get_client()
+    await client.ensure_metadata()
+    live_osds = client.known_osd_names
+    result = discovery.resolve_operator(query, region=region, live_osds=live_osds)
+    if result is not None:
+        return result
+
+    return _operator_resolution_error(query, live_osds=live_osds)
 
 
 @mcp.tool()
-def search_tariffs(
+async def search_tariffs(
     customer_type: Literal["home", "small_business", "industry"],
     zone_preference: Literal["1-zone", "2-zone-night", "2-zone-peak", "2-zone-weekend", "3-zone"] | None = None,
     operator: str | None = None,
 ) -> dict[str, Any]:
     """Discover valid tariff codes tailored to a customer profile (household,
     small business, or industry), optionally narrowed by zone preference and
-    operator.
+    operator. The embedded catalog is enriched with live SENS tariff codes
+    when metadata is reachable; discovery still works offline from fallback data.
     """
     if operator is not None:
         resolved = discovery.resolve_operator(operator)
@@ -120,7 +157,17 @@ def search_tariffs(
                 example_valid_call="search_tariffs(customer_type='home', operator='TAURON Dystrybucja S.A.')",
             )
 
-    return {"status": "ok", "tariffs": discovery.search_tariffs(customer_type, zone_preference, operator)}
+    client = get_client()
+    await client.ensure_metadata()
+    return {
+        "status": "ok",
+        "tariffs": discovery.search_tariffs(
+            customer_type,
+            zone_preference,
+            operator,
+            live_codes=client.known_tariff_codes,
+        ),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -135,7 +182,7 @@ async def get_prices(
     sprzedawca: str | None = None,
     date: str | None = None,
     market: str | None = None,
-    annual_kwh: float | None = None,
+    annual_kwh: int | None = None,
     region: str | None = None,
     since: str | None = None,
     detail_level: Literal["summary", "detailed"] = "summary",
@@ -172,7 +219,6 @@ async def get_prices(
         parsed = PriceResponse.model_validate(payload)
         return {"status": "ok", **format_price_response(parsed.model_dump(), detail_level=detail_level)}
     except Exception as e:  # noqa: BLE001 - MCP tool boundary: any parse/validation
-        # failure here becomes a structured error response, never an unhandled exception.
         return _malformed_response_error(e)
 
 
@@ -184,6 +230,14 @@ async def get_tariff_components(tariff_id: str, since: str | None = None) -> dic
     client = get_client()
     try:
         payload = await client.get_tariff_components(tariff_id, since=since)
+        rows = payload.get("data") or payload.get("items") or payload.get("content") or []
+        if isinstance(rows, list) and not rows:
+            if not await client.tariff_exists(tariff_id):
+                return SensApiError(
+                    "NOT_FOUND",
+                    f"No public tariff exists with tariff_id '{tariff_id}'.",
+                    remediation="Check the tariff_id in get_tariffs/search results and retry.",
+                ).to_dict()
     except SensApiError as e:
         return e.to_dict()
 
@@ -191,7 +245,6 @@ async def get_tariff_components(tariff_id: str, since: str | None = None) -> dic
         parsed = TariffComponentsResponse.model_validate(payload)
         return {"status": "ok", **parsed.model_dump()}
     except Exception as e:  # noqa: BLE001 - MCP tool boundary: any parse/validation
-        # failure here becomes a structured error response, never an unhandled exception.
         return _malformed_response_error(e)
 
 

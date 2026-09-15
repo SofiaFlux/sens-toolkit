@@ -3,14 +3,16 @@
 This module is the embedded fallback schema: it works with zero network calls,
 so the MCP server can boot instantly and answer discovery questions (operator
 resolution, tariff search, the cheat-sheet resource) before — or even without —
-ever reaching the live SENS API. `client.py` refreshes tariff codes from the
-live API in the background and `resolve_operator`/`search_tariffs` fold that
-data in when it is available, but never block on it.
+ever reaching the live SENS API. `client.py` refreshes tariff/operator metadata
+from the live API in the background and `resolve_operator`/`search_tariffs` fold
+that data in when it is available, but never block the static fallback itself.
 """
 
 from __future__ import annotations
 
 import difflib
+import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Literal
 
@@ -109,13 +111,20 @@ exact values the API expects.
 
 | OSD | Default retailer | Region |
 |---|---|---|
-| PGE Dystrybucja S.A. | PGE Obrót S.A. | Mazowieckie / Łódzkie / Lubelskie / Podlaskie |
-| TAURON Dystrybucja S.A. | TAURON Sprzedaż Sp. z o.o. | Małopolskie / Śląskie / Opolskie / Dolnośląskie |
-| Enea Operator Sp. z o.o. | Enea S.A. | Wielkopolskie / Zachodniopomorskie / Lubuskie |
-| Energa-Operator S.A. | ENERGA-OBRÓT S.A. | Pomorskie / Warmińsko-Mazurskie |
+| PGE Dystrybucja S.A. | PGE Obrót S.A. | Mazowieckie / Łódzkie / Lubelskie / Podlaskie / Rzeszów area |
+| TAURON Dystrybucja S.A. | TAURON Sprzedaż Sp. z o.o. | Małopolskie / Śląskie / Opolskie / Dolnośląskie / Świętokrzyskie |
+| Enea Operator Sp. z o.o. | Enea S.A. | Wielkopolskie / Zachodniopomorskie / Lubuskie / Kujawsko-Pomorskie |
+| Energa-Operator S.A. | ENERGA-OBRÓT S.A. | Pomorskie / Warmińsko-Mazurskie / part of Kujawsko-Pomorskie |
 | Stoen Operator Sp. z o.o. | *(none available)* | Warszawa (city) |
 
+The table above is the embedded offline fallback. When the live SENS catalog is
+reachable, `resolve_operator` also discovers additional OSD names from it.
+
 ## Tariff groups
+The list below is the embedded offline fallback of common groups. `search_tariffs`
+also folds in additional tariff codes discovered from the live SENS catalog when
+metadata is available.
+
 - **G (household):** G11 (1-zone flat), G12 (2-zone day/night), G12w (2-zone
   weekend), G13 (3-zone).
 - **C (small/medium business, low voltage):** C11 (1-zone), C12a
@@ -132,7 +141,8 @@ source of truth.
 
 ## Tools
 - `resolve_operator(query, region=None)` — fuzzy-resolve a city or company
-  name to the exact `osd`/`sprzedawca` strings.
+  name to the exact `osd`/`sprzedawca` strings; when supplied, `region` is a
+  constraint/disambiguator and conflicting matches are rejected.
 - `search_tariffs(customer_type, zone_preference=None, operator=None)` —
   discover valid tariff codes for a customer profile.
 - `get_prices(osd, taryfa, ...)` — fetch composite prices and rate breakdown.
@@ -149,6 +159,38 @@ def _normalize(s: str) -> str:
     return s.strip().casefold()
 
 
+_REGION_NOISE = {"part", "of", "area", "city"}
+
+
+def _normalize_region_fragment(value: str) -> str:
+    folded = unicodedata.normalize("NFKD", value.casefold())
+    asciiish = "".join(ch for ch in folded if not unicodedata.combining(ch))
+    tokens = re.findall(r"[a-z0-9]+", asciiish)
+    return " ".join(token for token in tokens if token not in _REGION_NOISE)
+
+
+def _region_matches(op: Operator, region: str | None) -> bool:
+    """Match one explicit coverage segment, not arbitrary substrings.
+
+    In particular, `Pomorskie` must not accidentally match the `pomorskie`
+    suffix inside `Kujawsko-Pomorskie`. Slash-separated coverage entries are
+    authoritative; presentation qualifiers such as `city`, `area`, and
+    `part of` are ignored for matching.
+    """
+    if region is None or not region.strip():
+        return True
+    requested = _normalize_region_fragment(region)
+    if not requested:
+        return True
+    if requested == _normalize_region_fragment(op.region):
+        return True
+    return requested in {
+        _normalize_region_fragment(part)
+        for part in op.region.split("/")
+        if _normalize_region_fragment(part)
+    }
+
+
 def _build_alias_index() -> dict[str, Operator]:
     idx: dict[str, Operator] = {}
     for op in OPERATORS:
@@ -160,30 +202,84 @@ def _build_alias_index() -> dict[str, Operator]:
     return idx
 
 
-# Built once at import time and shared by resolve_operator/resolve_operator_candidates
-# rather than rebuilt from scratch on every call.
 _ALIAS_INDEX: dict[str, Operator] = _build_alias_index()
 
 
-def resolve_operator(query: str, region: str | None = None) -> dict | None:
-    """Resolve a natural-language city or company name to an exact OSD/retailer pair.
+def _clean_live_osds(live_osds: list[str] | None) -> list[str]:
+    return sorted(
+        {
+            value.strip()
+            for value in (live_osds or [])
+            if isinstance(value, str) and value.strip()
+        },
+        key=str.casefold,
+    )
 
-    Uses `difflib.get_close_matches` against known operator names and aliases
-    for typo tolerance. Returns None if nothing matches closely enough, or if
-    the query is genuinely ambiguous between two or more operators — callers
-    (server.py) turn that into a structured AMBIGUOUS_OPERATOR /
-    UNRESOLVABLE_OPERATOR error with suggestions.
+
+def _live_osd_to_dict(osd: str) -> dict:
+    """Return the common resolver shape without inventing unavailable metadata."""
+    return {
+        "osd": osd,
+        "default_retailer": None,
+        "region": None,
+        "supported_tariff_groups": [],
+    }
+
+
+def _resolve_live_osd(query: str, live_osds: list[str] | None) -> dict | None:
+    """Resolve against source-faithful OSD names discovered from /tariffs.
+
+    Exact/substring matching is attempted first. A single strict fuzzy match is
+    then allowed for harmless typography differences such as `Sp. z o.o.` versus
+    source-faithful `Sp. z o. o.`. Multiple live matches are treated as
+    ambiguous rather than guessed.
+    """
+    names = _clean_live_osds(live_osds)
+    if not names:
+        return None
+
+    q = _normalize(query)
+    direct = [
+        name
+        for name in names
+        if q == _normalize(name) or q in _normalize(name) or _normalize(name) in q
+    ]
+    if len(direct) == 1:
+        return _live_osd_to_dict(direct[0])
+    if len(direct) > 1:
+        return None
+
+    normalized_to_names: dict[str, list[str]] = {}
+    for name in names:
+        normalized_to_names.setdefault(_normalize(name), []).append(name)
+    close = difflib.get_close_matches(q, normalized_to_names.keys(), n=5, cutoff=0.8)
+    candidates = {
+        name
+        for normalized in close
+        for name in normalized_to_names[normalized]
+    }
+    if len(candidates) == 1:
+        return _live_osd_to_dict(next(iter(candidates)))
+    return None
+
+
+def resolve_operator(
+    query: str,
+    region: str | None = None,
+    live_osds: list[str] | None = None,
+    allow_fuzzy: bool = True,
+) -> dict | None:
+    """Resolve a natural-language name; an explicit region constrains the result.
+
+    Curated exact/prefix-style matches are considered first. When live metadata
+    is available, a direct live legal-entity match outranks typo-based embedded
+    matching. `allow_fuzzy=False` exposes the high-confidence embedded fast path
+    used by the MCP tool before deciding whether it needs a metadata refresh.
     """
     if not query or not query.strip():
         return None
 
     q = _normalize(query)
-
-    # Exact / substring match against aliases first (cheap and precise).
-    # Collect ALL matching operators before deciding: a single match resolves
-    # directly, but two or more equally-valid matches are ambiguous and must
-    # not be silently resolved to whichever operator happens to be declared
-    # first in OPERATORS.
     matched_ops: list[Operator] = []
     seen_osds: set[str] = set()
     for op in OPERATORS:
@@ -192,28 +288,68 @@ def resolve_operator(query: str, region: str | None = None) -> dict | None:
             candidates.append(op.default_retailer)
         for cand in candidates:
             cand_n = _normalize(cand)
-            if q == cand_n or q in cand_n or cand_n in q:
+            # Query-as-prefix/substring is useful for short aliases (e.g. `ene`
+            # deliberately matches Enea + Energa and becomes ambiguous). The
+            # reverse direction is unsafe: `enea` must not prove that `eneax`
+            # is the same legal entity.
+            if q == cand_n or q in cand_n:
                 if op.osd not in seen_osds:
                     matched_ops.append(op)
                     seen_osds.add(op.osd)
                 break
 
+    if region is not None and region.strip():
+        matched_ops = [op for op in matched_ops if _region_matches(op, region)]
+
     if len(matched_ops) == 1:
         return _operator_to_dict(matched_ops[0])
     if len(matched_ops) > 1:
-        # Ambiguous — let the caller's candidate-suggestion path handle it.
         return None
 
-    # Fuzzy fallback across all alias strings.
-    matches = difflib.get_close_matches(q, _ALIAS_INDEX.keys(), n=1, cutoff=0.6)
-    if matches:
-        return _operator_to_dict(_ALIAS_INDEX[matches[0]])
+    # A live catalog identity is stronger evidence than a typo-distance guess
+    # against the five embedded fallbacks. Region-constrained live resolution is
+    # intentionally not attempted because the catalog does not carry an
+    # authoritative operator coverage map.
+    if region is None or not region.strip():
+        live_match = _resolve_live_osd(query, live_osds)
+        if live_match is not None:
+            return live_match
 
+    if not allow_fuzzy:
+        return None
+
+    # Keep typo tolerance deliberately strict. At 0.6, a previously unknown
+    # company such as POLENERGIA was incorrectly substituted with Energa/PGE.
+    # 0.8 still covers intended transposition typos such as tauorn -> tauron
+    # while preferring unresolved over returning another legal entity.
+    matches = difflib.get_close_matches(
+        q,
+        _ALIAS_INDEX.keys(),
+        n=5 if region is not None and region.strip() else 1,
+        cutoff=0.8,
+    )
+    fuzzy_ops: list[Operator] = []
+    fuzzy_seen: set[str] = set()
+    for match in matches:
+        op = _ALIAS_INDEX[match]
+        if op.osd in fuzzy_seen:
+            continue
+        if not _region_matches(op, region):
+            continue
+        fuzzy_ops.append(op)
+        fuzzy_seen.add(op.osd)
+
+    if len(fuzzy_ops) == 1:
+        return _operator_to_dict(fuzzy_ops[0])
     return None
 
 
-def resolve_operator_candidates(query: str, n: int = 3) -> list[str]:
-    """Return up to n close alias matches for use in error-message suggestions."""
+def resolve_operator_candidates(
+    query: str,
+    n: int = 3,
+    live_osds: list[str] | None = None,
+) -> list[str]:
+    """Return up to n close OSD matches for use in error-message suggestions."""
     if not query or not query.strip():
         return []
     q = _normalize(query)
@@ -223,7 +359,24 @@ def resolve_operator_candidates(query: str, n: int = 3) -> list[str]:
         osd = _ALIAS_INDEX[m].osd
         if osd not in seen:
             seen.append(osd)
-    return seen
+
+    live_names = _clean_live_osds(live_osds)
+    live_norm = {_normalize(name): name for name in live_names}
+    direct_live = [
+        name
+        for name in live_names
+        if q in _normalize(name) or _normalize(name) in q
+    ]
+    fuzzy_live = [
+        live_norm[value]
+        for value in difflib.get_close_matches(q, live_norm.keys(), n=n, cutoff=0.4)
+    ]
+    for osd in [*direct_live, *fuzzy_live]:
+        if osd not in seen:
+            seen.append(osd)
+        if len(seen) >= n:
+            break
+    return seen[:n]
 
 
 def _operator_to_dict(op: Operator) -> dict:
@@ -235,23 +388,39 @@ def _operator_to_dict(op: Operator) -> dict:
     }
 
 
+def _live_code_customer_type(code: str) -> CustomerType | None:
+    """Infer only the broad voltage/customer family encoded in a tariff code.
+
+    This intentionally does not invent zone counts or marketing names for live-only
+    codes. Those details remain authoritative in the REST catalog.
+    """
+    normalized = code.strip().upper()
+    if normalized.startswith("G"):
+        return "home"
+    if normalized.startswith("C"):
+        return "small_business"
+    if normalized.startswith(("A", "B", "R")):
+        return "industry"
+    return None
+
+
 def search_tariffs(
     customer_type: CustomerType,
     zone_preference: ZonePreference | None = None,
     operator: str | None = None,
+    live_codes: list[str] | None = None,
 ) -> list[dict]:
-    """Filter the embedded tariff-group catalog by customer profile.
+    """Filter the embedded catalog and optionally enrich it with live codes.
 
-    `operator` is accepted for API-shape parity with the spec (§3.1); the
-    tariff-group catalog itself is operator-agnostic (all OSDs offer the same
-    regulated groups), so it only affects the response by validating (via
-    `resolve_operator`) that the operator is a real one — invalid operators
-    do not silently return generic results.
+    The embedded entries carry curated descriptions and zone metadata. Live-only
+    codes are added only when no `zone_preference` is requested, because a bare
+    code is not enough evidence to infer its exact zone schedule safely.
     """
     results = [g for g in TARIFF_GROUPS if customer_type in g.customer_types]
     if zone_preference is not None:
         results = [g for g in results if g.zone_preference == zone_preference]
-    return [
+
+    response = [
         {
             "code": g.code,
             "name": g.name,
@@ -260,6 +429,23 @@ def search_tariffs(
         }
         for g in results
     ]
+
+    if zone_preference is None and live_codes:
+        existing = {row["code"].casefold() for row in response}
+        for code in sorted(set(live_codes), key=str.casefold):
+            if _live_code_customer_type(code) != customer_type or code.casefold() in existing:
+                continue
+            response.append(
+                {
+                    "code": code,
+                    "name": "Live SENS catalog tariff",
+                    "description": "Discovered from the live SENS tariff catalog; inspect /api/v1/tariffs for authoritative details.",
+                    "zones": None,
+                }
+            )
+            existing.add(code.casefold())
+
+    return response
 
 
 def known_tariff_codes() -> list[str]:
