@@ -27,8 +27,8 @@ interface PriceResponse {
 
 async function main(): Promise<void> {
   const url = new URL(`${BASE_URL}/api/v1/prices`);
-  url.searchParams.set("osd", "TAURON Dystrybucja S.A.");
-  url.searchParams.set("taryfa", "G12w");
+  url.searchParams.set("dso", "TAURON Dystrybucja S.A.");
+  url.searchParams.set("tariff", "G12w");
   url.searchParams.set("annual_kwh", "3000");
 
   const res = await fetch(url, { headers: { "X-API-KEY": API_KEY as string } });

@@ -17,8 +17,8 @@ fi
 echo "== Get composite prices for TAURON G12w, 3000 kWh/year =="
 curl -sS -H "X-API-KEY: ${SENS_API_KEY}" \
   --get "${BASE_URL}/api/v1/prices" \
-  --data-urlencode "osd=TAURON Dystrybucja S.A." \
-  --data-urlencode "taryfa=G12w" \
+  --data-urlencode "dso=TAURON Dystrybucja S.A." \
+  --data-urlencode "tariff=G12w" \
   --data-urlencode "annual_kwh=3000" | head -c 2000
 echo
 

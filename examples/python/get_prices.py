@@ -19,8 +19,8 @@ def main() -> None:
     resp = httpx.get(
         f"{BASE_URL}/api/v1/prices",
         params={
-            "osd": "TAURON Dystrybucja S.A.",
-            "taryfa": "G12w",
+            "dso": "TAURON Dystrybucja S.A.",
+            "tariff": "G12w",
             "annual_kwh": 3000,
         },
         headers={"X-API-KEY": API_KEY},
