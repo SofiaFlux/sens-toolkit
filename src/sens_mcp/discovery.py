@@ -141,11 +141,11 @@ source of truth.
 
 ## Tools
 - `resolve_operator(query, region=None)` — fuzzy-resolve a city or company
-  name to the exact `osd`/`sprzedawca` strings; when supplied, `region` is a
+  name to the exact `dso`/`retailer` strings; when supplied, `region` is a
   constraint/disambiguator and conflicting matches are rejected.
 - `search_tariffs(customer_type, zone_preference=None, operator=None)` —
   discover valid tariff codes for a customer profile.
-- `get_prices(osd, taryfa, ...)` — fetch composite prices and rate breakdown.
+- `get_prices(dso, tariff, ...)` — fetch composite prices and rate breakdown.
 - `get_tariff_components(tariff_id)` — inspect a tariff's URE-approved rates.
 """
 

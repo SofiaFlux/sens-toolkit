@@ -100,7 +100,7 @@ class TestDiscoveryToolsLive:
     async def test_resolve_operator_exact_city(self):
         async with open_session() as session:
             result = await _call(session, "resolve_operator", query="Kraków")
-            assert result["osd"] == "TAURON Dystrybucja S.A."
+            assert result["dso"] == "TAURON Dystrybucja S.A."
             assert "default_retailer" in result
 
     async def test_resolve_operator_ambiguous_prefix(self):
@@ -121,7 +121,7 @@ class TestDiscoveryToolsLive:
             result = await _call(session, "resolve_operator", query="xqzwv-frobnicate-qqqjjj")
             assert result["status"] == "error"
             assert result["error_code"] == "UNRESOLVABLE_OPERATOR"
-            assert result["suggestions"] is not None  # full known_osds list, not None
+            assert result["suggestions"] is not None  # full known_dsos list, not None
 
     async def test_search_tariffs_home_weekend(self):
         async with open_session() as session:
@@ -145,9 +145,9 @@ class TestDiscoveryToolsLive:
                     result = await _call(
                         session,
                         "get_prices",
-                        osd=op.osd,
-                        taryfa="G11",
-                        sprzedawca=op.default_retailer,
+                        dso=op.osd,
+                        tariff="G11",
+                        retailer=op.default_retailer,
                     )
                     # Either the call succeeds with ok status, or it fails due to
                     # lack of coverage for that operator/retailer/tariff combo
@@ -171,19 +171,19 @@ class TestDataToolsLiveWithParity:
     # sp. z o.o. 2 Sp. k., B21). If this ever 404s because the row aged out,
     # replace with any current `operator_name`/`tariff_code` pair from
     # GET /api/v1/tariffs?size=50 (filter for a non-empty operator_name).
-    _OSD = "ACPRO sp. z o.o. 2 Sp. k."
-    _TARYFA = "B21"
+    _DSO = "ACPRO sp. z o.o. 2 Sp. k."
+    _TARIFF = "B21"
     _TARIFF_ID = "acpro-2_b21_2026"
 
     async def test_get_prices_matches_raw_api_call(self):
         async with open_session() as session:
-            mcp_result = await _call(session, "get_prices", osd=self._OSD, taryfa=self._TARYFA)
+            mcp_result = await _call(session, "get_prices", dso=self._DSO, tariff=self._TARIFF)
         assert mcp_result["status"] == "ok"
 
         async with httpx.AsyncClient(base_url=SENS_BASE_URL, timeout=15.0) as client:
             raw = await client.get(
                 "/api/v1/prices",
-                params={"osd": self._OSD, "taryfa": self._TARYFA},
+                params={"dso": self._DSO, "tariff": self._TARIFF},
                 headers={"X-API-KEY": SENS_API_KEY},
             )
         raw.raise_for_status()
@@ -207,7 +207,7 @@ class TestDataToolsLiveWithParity:
 
     async def test_get_prices_detailed_mode_keeps_supply_breakdown(self):
         async with open_session() as session:
-            result = await _call(session, "get_prices", osd=self._OSD, taryfa=self._TARYFA, detail_level="detailed")
+            result = await _call(session, "get_prices", dso=self._DSO, tariff=self._TARIFF, detail_level="detailed")
         assert "supply" in result["offers"][0]
 
     async def test_get_tariff_components_matches_raw_api_call(self):
@@ -238,7 +238,7 @@ class TestErrorHandlingLive:
 
     async def test_invalid_api_key_maps_to_unauthorized(self):
         async with open_session(api_key="sens_definitely-not-a-real-key") as session:
-            result = await _call(session, "get_prices", osd="TAURON Dystrybucja S.A.", taryfa="G11")
+            result = await _call(session, "get_prices", dso="TAURON Dystrybucja S.A.", tariff="G11")
         assert result["status"] == "error"
         assert result["error_code"] == "UNAUTHORIZED"
         assert "remediation" in result

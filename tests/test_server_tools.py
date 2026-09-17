@@ -162,3 +162,57 @@ async def test_get_prices_malformed_offer_shape_returns_structured_error():
 
     assert result["status"] == "error"
     assert result["error_code"] == "MALFORMED_RESPONSE"
+
+
+@respx.mock
+async def test_get_prices_response_never_leaks_legacy_polish_keys():
+    """Regression lock for the dso/retailer/tariff rename: the MCP-facing
+    response must never resurrect the legacy osd/sprzedawca/taryfa keys,
+    even embedded inside meta.resolved.
+    """
+    respx.get("https://api.getsens.energy/api/v1/tariffs").mock(
+        return_value=httpx.Response(200, json={"items": []})
+    )
+    respx.get("https://api.getsens.energy/api/v1/prices").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "meta": {
+                    "mode": "party_sheet",
+                    "date": "2026-08-21",
+                    "resolved": {"dso": "TAURON Dystrybucja S.A.", "tariff": "G12w"},
+                    "lastUpdatedAt": "2026-08-20T10:00:00Z",
+                },
+                "offers": [
+                    {
+                        "tariff_code": "G12w",
+                        "region": "Małopolskie",
+                        "zones": ["day", "night"],
+                        "summary": {"total_avg_pln_per_kwh": 0.85},
+                    }
+                ],
+                "unmatched": [],
+                "warnings": [],
+            },
+        )
+    )
+
+    result = await server.get_prices(dso="TAURON Dystrybucja S.A.", tariff="G12w")
+
+    assert result["status"] == "ok"
+    resolved = result["meta"]["resolved"]
+    assert "osd" not in resolved
+    assert "sprzedawca" not in resolved
+    assert "taryfa" not in resolved
+    assert resolved["dso"] == "TAURON Dystrybucja S.A."
+    assert resolved["tariff"] == "G12w"
+
+
+async def test_resolve_operator_response_never_leaks_legacy_polish_keys():
+    """Regression lock: resolve_operator must return canonical `dso`, never
+    the legacy `osd` key, for a known operator.
+    """
+    result = await server.resolve_operator(query="enea")
+    assert "osd" not in result
+    assert "dso" in result
+    assert result["dso"] == "Enea Operator Sp. z o.o."
