@@ -45,7 +45,7 @@ def _market_payload(market: str) -> dict:
     meta = {
         "mode": "market_pair",
         "date": "2026-09-10",
-        "resolved": {"osd": "TAURON Dystrybucja S.A.", "market": market, "taryfa": "G11"},
+        "resolved": {"dso": "TAURON Dystrybucja S.A.", "market": market, "tariff": "G11"},
     }
     if fx is not None:
         meta["fx"] = fx
@@ -74,7 +74,7 @@ async def test_market_summary_preserves_the_market_product_required_by_parity_co
     )
 
     result = await server.get_prices(
-        osd="TAURON Dystrybucja S.A.", taryfa="G11", market=market, date="2026-09-10",
+        dso="TAURON Dystrybucja S.A.", tariff="G11", market=market, date="2026-09-10",
         detail_level="summary",
     )
 
@@ -99,7 +99,7 @@ async def test_tariff_summary_still_omits_verbose_supply_slot():
         return_value=httpx.Response(200, json={"data": []})
     )
     payload = {
-        "meta": {"mode": "party_sheet", "date": "2026-09-10", "resolved": {"osd": "TAURON Dystrybucja S.A."}},
+        "meta": {"mode": "party_sheet", "date": "2026-09-10", "resolved": {"dso": "TAURON Dystrybucja S.A."}},
         "offers": [{
             "tariff_code": "G11",
             "zones": ["flat"],
@@ -110,7 +110,7 @@ async def test_tariff_summary_still_omits_verbose_supply_slot():
     }
     respx.get("https://api.getsens.energy/api/v1/prices").mock(return_value=httpx.Response(200, json=payload))
 
-    result = await server.get_prices(osd="TAURON Dystrybucja S.A.", taryfa="G11", detail_level="summary")
+    result = await server.get_prices(dso="TAURON Dystrybucja S.A.", tariff="G11", detail_level="summary")
 
     assert result["status"] == "ok"
     assert "supply" not in result["offers"][0]

@@ -24,7 +24,7 @@ async def test_get_prices_success_summary_mode():
                 "meta": {
                     "mode": "party_sheet",
                     "date": "2026-08-21",
-                    "resolved": {"osd": "TAURON Dystrybucja S.A.", "taryfa": "G12w"},
+                    "resolved": {"dso": "TAURON Dystrybucja S.A.", "tariff": "G12w"},
                     "lastUpdatedAt": "2026-08-20T10:00:00Z",
                 },
                 "offers": [
@@ -47,7 +47,7 @@ async def test_get_prices_success_summary_mode():
         return_value=httpx.Response(200, json={"items": []})
     )
 
-    result = await server.get_prices(osd="TAURON Dystrybucja S.A.", taryfa="G12w")
+    result = await server.get_prices(dso="TAURON Dystrybucja S.A.", tariff="G12w")
 
     assert route.called
     assert result["status"] == "ok"
@@ -67,7 +67,7 @@ async def test_get_prices_maps_401_to_structured_error():
         return_value=httpx.Response(401, json={"error": "unauthorized"})
     )
 
-    result = await server.get_prices(osd="TAURON Dystrybucja S.A.", taryfa="G12w")
+    result = await server.get_prices(dso="TAURON Dystrybucja S.A.", tariff="G12w")
 
     assert result["status"] == "error"
     assert result["error_code"] == "UNAUTHORIZED"
@@ -83,7 +83,7 @@ async def test_get_prices_maps_500_to_structured_error():
         return_value=httpx.Response(503, text="service unavailable")
     )
 
-    result = await server.get_prices(osd="TAURON Dystrybucja S.A.", taryfa="G12w")
+    result = await server.get_prices(dso="TAURON Dystrybucja S.A.", tariff="G12w")
 
     assert result["status"] == "error"
     assert result["error_code"] == "UPSTREAM_ERROR"
@@ -91,7 +91,7 @@ async def test_get_prices_maps_500_to_structured_error():
 
 async def test_resolve_operator_tool_success():
     result = await server.resolve_operator(query="enea")
-    assert result["osd"] == "Enea Operator Sp. z o.o."
+    assert result["dso"] == "Enea Operator Sp. z o.o."
 
 
 @respx.mock
@@ -103,7 +103,7 @@ async def test_resolve_operator_tool_unresolvable_error_shape():
     result = await server.resolve_operator(query="xqzwv frobnicate qqqjjj")
     assert result["status"] == "error"
     assert result["error_code"] == "UNRESOLVABLE_OPERATOR"
-    assert "known_osds" in result["suggestions"]
+    assert "known_dsos" in result["suggestions"]
 
 
 async def test_search_tariffs_tool_success():
@@ -117,7 +117,7 @@ async def test_search_tariffs_tool_bad_operator_error_shape():
     result = await server.search_tariffs(customer_type="home", operator="xqzwv frobnicate qqqjjj")
     assert result["status"] == "error"
     assert result["error_code"] == "UNRESOLVABLE_OPERATOR"
-    assert "known_osds" in result["suggestions"]
+    assert "known_dsos" in result["suggestions"]
 
 
 async def test_search_tariffs_tool_ambiguous_operator_error_shape():
@@ -158,7 +158,7 @@ async def test_get_prices_malformed_offer_shape_returns_structured_error():
         return_value=httpx.Response(200, json={"meta": {}, "offers": ["not-a-dict"]})
     )
 
-    result = await server.get_prices(osd="TAURON Dystrybucja S.A.", taryfa="G12w")
+    result = await server.get_prices(dso="TAURON Dystrybucja S.A.", tariff="G12w")
 
     assert result["status"] == "error"
     assert result["error_code"] == "MALFORMED_RESPONSE"

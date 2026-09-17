@@ -8,19 +8,19 @@ def test_conflicting_region_rejects_otherwise_exact_city_match():
 def test_matching_city_region_still_resolves():
     result = discovery.resolve_operator("Warszawa", region="warszawa")
     assert result is not None
-    assert result["osd"] == "Stoen Operator Sp. z o.o."
+    assert result["dso"] == "Stoen Operator Sp. z o.o."
 
 
 def test_region_matching_is_diacritic_insensitive():
     result = discovery.resolve_operator("tauron", region="Slaskie")
     assert result is not None
-    assert result["osd"] == "TAURON Dystrybucja S.A."
+    assert result["dso"] == "TAURON Dystrybucja S.A."
 
 
 def test_region_disambiguates_a_query_matching_multiple_operators():
     result = discovery.resolve_operator("ene", region="Pomorskie")
     assert result is not None
-    assert result["osd"] == "Energa-Operator S.A."
+    assert result["dso"] == "Energa-Operator S.A."
 
 
 async def test_mcp_reports_actionable_region_mismatch():

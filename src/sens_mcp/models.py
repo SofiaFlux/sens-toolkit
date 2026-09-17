@@ -21,10 +21,10 @@ class SensModel(BaseModel):
 
 
 class ResolvedParams(SensModel):
-    osd: str | None = None
-    sprzedawca: str | None = None
+    dso: str | None = None
+    retailer: str | None = None
     market: str | None = None
-    taryfa: str | None = None
+    tariff: str | None = None
 
 
 class PaginationInfo(SensModel):

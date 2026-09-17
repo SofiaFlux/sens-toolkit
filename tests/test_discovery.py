@@ -4,21 +4,21 @@ from sens_mcp import discovery
 def test_resolve_operator_exact_alias():
     result = discovery.resolve_operator("enea")
     assert result is not None
-    assert result["osd"] == "Enea Operator Sp. z o.o."
+    assert result["dso"] == "Enea Operator Sp. z o.o."
     assert result["default_retailer"] == "Enea S.A."
 
 
 def test_resolve_operator_city_alias():
     result = discovery.resolve_operator("Kraków")
     assert result is not None
-    assert result["osd"] == "TAURON Dystrybucja S.A."
+    assert result["dso"] == "TAURON Dystrybucja S.A."
 
 
 def test_resolve_operator_typo_tolerance():
     # "tauorn" is a transposition typo of "tauron"
     result = discovery.resolve_operator("tauorn")
     assert result is not None
-    assert result["osd"] == "TAURON Dystrybucja S.A."
+    assert result["dso"] == "TAURON Dystrybucja S.A."
 
 
 def test_resolve_operator_unresolvable():
@@ -138,6 +138,6 @@ def test_every_operator_osd_resolves_to_exactly_itself():
     for op in discovery.OPERATORS:
         result = discovery.resolve_operator(op.osd)
         assert result is not None, f"{op.osd!r} failed to resolve to any operator"
-        assert result["osd"] == op.osd, (
-            f"{op.osd!r} resolved to a different operator: {result['osd']!r}"
+        assert result["dso"] == op.osd, (
+            f"{op.osd!r} resolved to a different operator: {result['dso']!r}"
         )

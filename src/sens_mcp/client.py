@@ -191,7 +191,7 @@ class SensClient:
             raise SensApiError(
                 "BAD_REQUEST",
                 f"The SENS API rejected the request (HTTP {resp.status_code}): {resp.text[:500]}",
-                remediation="Check the parameter values (osd, taryfa, sprzedawca, etc.) against sens://market/cheat-sheet.",
+                remediation="Check the parameter values (dso, tariff, retailer, etc.) against sens://market/cheat-sheet.",
             )
 
         if resp.status_code == 304 or not resp.content:
@@ -206,9 +206,9 @@ class SensClient:
 
     async def get_prices(
         self,
-        osd: str | None = None,
-        sprzedawca: str | None = None,
-        taryfa: str | None = None,
+        dso: str | None = None,
+        retailer: str | None = None,
+        tariff: str | None = None,
         market: str | None = None,
         date: str | None = None,
         annual_kwh: int | None = None,
@@ -222,9 +222,9 @@ class SensClient:
             "GET",
             "/api/v1/prices",
             params={
-                "osd": osd,
-                "sprzedawca": sprzedawca,
-                "taryfa": taryfa,
+                "dso": dso,
+                "retailer": retailer,
+                "tariff": tariff,
                 "market": market,
                 "date": date,
                 "annual_kwh": annual_kwh,

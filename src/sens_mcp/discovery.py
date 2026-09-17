@@ -219,7 +219,7 @@ def _clean_live_osds(live_osds: list[str] | None) -> list[str]:
 def _live_osd_to_dict(osd: str) -> dict:
     """Return the common resolver shape without inventing unavailable metadata."""
     return {
-        "osd": osd,
+        "dso": osd,
         "default_retailer": None,
         "region": None,
         "supported_tariff_groups": [],
@@ -381,7 +381,7 @@ def resolve_operator_candidates(
 
 def _operator_to_dict(op: Operator) -> dict:
     return {
-        "osd": op.osd,
+        "dso": op.osd,
         "default_retailer": op.default_retailer,
         "region": op.region,
         "supported_tariff_groups": list(op.supported_tariff_groups),

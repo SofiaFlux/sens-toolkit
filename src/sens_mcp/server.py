@@ -69,7 +69,7 @@ def _operator_resolution_error(
         "error_code": "UNRESOLVABLE_OPERATOR",
         "message": f"Could not resolve '{query}' to any known OSD or retailer.",
         "suggestions": {
-            "known_osds": known_osds,
+            "known_dsos": known_osds,
         },
         "remediation": "Check sens://market/cheat-sheet or the live tariff catalog for supported operators.",
     }
@@ -93,8 +93,9 @@ def market_cheat_sheet() -> str:
 
 @mcp.tool()
 async def resolve_operator(query: str, region: str | None = None) -> dict[str, Any]:
-    """Resolve a natural-language city or company name to the exact OSD (distribution
-    operator) and default retailer strings the SENS API expects.
+    """Resolve a natural-language city or company name to the exact DSO (distribution
+    operator, sometimes called OSD in Polish-market sources) and default retailer
+    strings the SENS API expects.
 
     Example: query="Kraków" or query="enea". Handles typos via fuzzy matching.
     When `region` is supplied it is a constraint/disambiguator, not a passive hint.
@@ -118,11 +119,11 @@ async def resolve_operator(query: str, region: str | None = None) -> dict[str, A
                 "status": "error",
                 "error_code": "REGION_MISMATCH",
                 "message": (
-                    f"'{query}' resolves to {unconstrained['osd']} in region "
+                    f"'{query}' resolves to {unconstrained['dso']} in region "
                     f"'{actual_region}', which conflicts with requested region '{region}'."
                 ),
                 "suggestions": {
-                    "resolved_operator": unconstrained["osd"],
+                    "resolved_operator": unconstrained["dso"],
                     "actual_region": actual_region,
                 },
                 "remediation": "Remove the region constraint or use one of the operator's declared coverage regions.",
@@ -177,9 +178,9 @@ async def search_tariffs(
 
 @mcp.tool()
 async def get_prices(
-    osd: str,
-    taryfa: str,
-    sprzedawca: str | None = None,
+    dso: str,
+    tariff: str,
+    retailer: str | None = None,
     date: str | None = None,
     market: str | None = None,
     annual_kwh: int | None = None,
@@ -189,7 +190,7 @@ async def get_prices(
     page: int = 0,
     size: int = 100,
 ) -> dict[str, Any]:
-    """Fetch composite electricity prices and rate breakdown for a given OSD +
+    """Fetch composite electricity prices and rate breakdown for a given DSO +
     tariff, optionally scoped to a retailer, date, market, region, and annual
     consumption. When `annual_kwh` is provided, the backend computes exact
     annual capacity fees and volume-weighted totals — never re-derive these
@@ -201,9 +202,9 @@ async def get_prices(
     client = get_client()
     try:
         payload = await client.get_prices(
-            osd=osd,
-            sprzedawca=sprzedawca,
-            taryfa=taryfa,
+            dso=dso,
+            retailer=retailer,
+            tariff=tariff,
             market=market,
             date=date,
             annual_kwh=annual_kwh,

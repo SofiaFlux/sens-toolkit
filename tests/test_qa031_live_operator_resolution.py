@@ -28,7 +28,7 @@ def test_qa031_discovery_resolves_legal_form_variant_from_live_catalog():
     )
 
     assert result is not None
-    assert result["osd"] == POLENERGIA_RAW
+    assert result["dso"] == POLENERGIA_RAW
 
 
 def test_qa031_live_direct_match_outranks_embedded_fuzzy_alias():
@@ -36,7 +36,7 @@ def test_qa031_live_direct_match_outranks_embedded_fuzzy_alias():
     result = discovery.resolve_operator("eneax", live_osds=[LIVE_LOOKALIKE])
 
     assert result is not None
-    assert result["osd"] == LIVE_LOOKALIKE
+    assert result["dso"] == LIVE_LOOKALIKE
 
 
 @respx.mock
@@ -82,7 +82,7 @@ async def test_qa031_mcp_resolve_operator_falls_back_to_live_catalog(monkeypatch
 
     result = await server.resolve_operator("polenergia")
 
-    assert result["osd"] == POLENERGIA_RAW
+    assert result["dso"] == POLENERGIA_RAW
     assert result["default_retailer"] is None
 
 
@@ -97,4 +97,4 @@ async def test_qa031_mcp_live_direct_match_outranks_embedded_fuzzy_alias(monkeyp
 
     result = await server.resolve_operator("eneax")
 
-    assert result["osd"] == LIVE_LOOKALIKE
+    assert result["dso"] == LIVE_LOOKALIKE
