@@ -75,9 +75,9 @@ Add to `.cursor/mcp.json` (see [`configs/cursor_mcp.json`](configs/cursor_mcp.js
 
 | Tool | Purpose |
 |---|---|
-| `resolve_operator(query, region=None)` | Fuzzy-resolve a city or company name (typo-tolerant) to the exact `osd`/`sprzedawca` strings the API expects. |
+| `resolve_operator(query, region=None)` | Fuzzy-resolve a city or company name (typo-tolerant) to the exact `dso`/`retailer` strings the API expects. |
 | `search_tariffs(customer_type, zone_preference=None, operator=None)` | Discover valid tariff codes for a customer profile (home / small business / industry). |
-| `get_prices(osd, taryfa, ...)` | Fetch composite electricity prices and rate breakdown; pass `annual_kwh` for exact volume-weighted totals. |
+| `get_prices(dso, tariff, ...)` | Fetch composite electricity prices and rate breakdown; pass `annual_kwh` for exact volume-weighted totals. |
 | `get_tariff_components(tariff_id)` | Inspect a tariff's URE-approved fixed/variable rate components. |
 
 Resource: `sens://market/cheat-sheet` — a Markdown cheat sheet of Polish

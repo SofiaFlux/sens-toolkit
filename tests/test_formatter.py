@@ -5,7 +5,7 @@ SAMPLE_PAYLOAD = {
         "mode": "party_sheet",
         "date": "2026-08-21",
         "pricing_basis": "net_pln",
-        "resolved": {"osd": "TAURON Dystrybucja S.A.", "taryfa": "G12w"},
+        "resolved": {"dso": "TAURON Dystrybucja S.A.", "tariff": "G12w"},
         "lastUpdatedAt": "2026-08-20T10:00:00Z",
         "pagination": {"page": 0, "size": 100, "has_more": False},
     },
@@ -44,7 +44,7 @@ def test_summary_strips_audit_fields():
 def test_summary_keeps_core_meta_fields():
     result = format_price_response(SAMPLE_PAYLOAD, detail_level="summary")
     assert result["meta"]["mode"] == "party_sheet"
-    assert result["meta"]["resolved"]["osd"] == "TAURON Dystrybucja S.A."
+    assert result["meta"]["resolved"]["dso"] == "TAURON Dystrybucja S.A."
 
 
 def test_detailed_returns_payload_unmodified():

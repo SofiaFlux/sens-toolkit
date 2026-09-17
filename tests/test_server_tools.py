@@ -56,6 +56,8 @@ async def test_get_prices_success_summary_mode():
 
     request = route.calls.last.request
     assert request.headers["X-API-KEY"] == "test-key-123"
+    assert route.calls.last.request.url.params["dso"] == "TAURON Dystrybucja S.A."
+    assert route.calls.last.request.url.params["tariff"] == "G12w"
 
 
 @respx.mock
