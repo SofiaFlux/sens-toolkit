@@ -218,3 +218,17 @@ async def test_resolve_operator_response_never_leaks_legacy_polish_keys():
     assert "osd" not in result
     assert "dso" in result
     assert result["dso"] == "Enea Operator Sp. z o.o."
+
+
+@respx.mock
+async def test_get_regulated_fees_passes_the_range_and_returns_the_rates():
+    route = respx.get("https://api.getsens.energy/api/v1/electricity/regulated-fees").mock(
+        return_value=httpx.Response(200, json={
+            "data": [{"type": "capacity", "customer_scope": "NON_LUMP_SUM", "amount": 0.1925, "unit": "PLN/kWh",
+                      "valid_from": "2027-01-01", "valid_to": "2027-03-31",
+                      "charging_window": {"from": "07:00", "to": "22:00", "days": "WORKDAYS"}}],
+            "meta": {"from": "2027-01-01", "to": "2027-12-31", "count": 1}}))
+    out = await server.get_regulated_fees(fee_type="capacity", customer_scope="NON_LUMP_SUM", date_from="2027-01-01", date_to="2027-12-31")
+    assert out["status"] == "ok" and out["data"][0]["charging_window"]["from"] == "07:00"
+    q = route.calls.last.request.url.params
+    assert (q["type"], q["customer_scope"], q["from"], q["to"]) == ("capacity", "NON_LUMP_SUM", "2027-01-01", "2027-12-31") and "date" not in q

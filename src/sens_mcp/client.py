@@ -287,6 +287,17 @@ class SensClient:
                     remediation="Retry the request; if it persists, report the catalog pagination issue.",
                 )
 
+    async def get_regulated_fees(
+        self,
+        fee_type: str | None = None,
+        customer_scope: str | None = None,
+        date: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> dict[str, Any]:
+        params = {"type": fee_type, "customer_scope": customer_scope, "date": date, "from": date_from, "to": date_to}
+        return await self._request("GET", "/api/v1/electricity/regulated-fees", params={k: v for k, v in params.items() if v})
+
     async def get_tariff_components(self, tariff_id: str, since: str | None = None) -> dict[str, Any]:
         return await self._request(
             "GET",

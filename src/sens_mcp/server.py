@@ -249,6 +249,32 @@ async def get_tariff_components(tariff_id: str, since: str | None = None) -> dic
         return _malformed_response_error(e)
 
 
+@mcp.tool()
+async def get_regulated_fees(
+    fee_type: str | None = None,
+    customer_scope: str | None = None,
+    date: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> dict[str, Any]:
+    """Nationwide regulated electricity fees in Poland, published by the President of URE: the capacity fee (opłata mocowa) --
+    lump-sum monthly bands for households and the per-kWh rate for other end users together with its charging window
+    (local clock times, e.g. 07:00-22:00 on working days) -- the OZE fee and the cogeneration fee.
+
+    fee_type: capacity | oze | cogeneration (all when omitted). customer_scope: HOUSEHOLD_LUMP_SUM | NON_LUMP_SUM | ALL.
+    Either `date` (YYYY-MM-DD, rates in force that day; today when nothing is given) or `date_from` + `date_to`
+    (every rate whose validity overlaps the range, at most 10 years), e.g. the quarterly business capacity rates of 2027.
+    """
+    client = get_client()
+    try:
+        payload = await client.get_regulated_fees(fee_type, customer_scope, date, date_from, date_to)
+    except SensApiError as e:
+        return e.to_dict()
+    if not isinstance(payload.get("data"), list):
+        return _malformed_response_error(ValueError("regulated-fees response has no data list"))
+    return {"status": "ok", **payload}
+
+
 def main() -> None:
     """Synchronous entrypoint used by __main__.py / the `sens-mcp` console script."""
     mcp.run()
