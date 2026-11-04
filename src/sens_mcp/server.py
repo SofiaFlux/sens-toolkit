@@ -275,6 +275,31 @@ async def get_regulated_fees(
     return {"status": "ok", **payload}
 
 
+@mcp.tool()
+async def get_regulatory_indicators(
+    indicator: str | None = None,
+    tariff_group: str | None = None,
+    date: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> dict[str, Any]:
+    """Indicators published by the President of URE (Polish energy regulator): average_market_price (average selling price on the
+    competitive market, yearly and quarterly), average_quarterly_price, average_household_price, average_combined_price and
+    average_combined_price_80pct (per tariff group and zone), risk_free_rate, co2_forward_price, penalty_rate.
+
+    Either `date` (values whose period contains that day; today when nothing is given) or `date_from` + `date_to` (a series, at most
+    10 years). tariff_group filters the per-group averages (e.g. G11). valid_from/valid_to in the result is the period the value refers to.
+    """
+    client = get_client()
+    try:
+        payload = await client.get_regulatory_indicators(indicator, tariff_group, date, date_from, date_to)
+    except SensApiError as e:
+        return e.to_dict()
+    if not isinstance(payload.get("data"), list):
+        return _malformed_response_error(ValueError("regulatory-indicators response has no data list"))
+    return {"status": "ok", **payload}
+
+
 def main() -> None:
     """Synchronous entrypoint used by __main__.py / the `sens-mcp` console script."""
     mcp.run()

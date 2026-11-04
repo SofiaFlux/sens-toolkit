@@ -232,3 +232,14 @@ async def test_get_regulated_fees_passes_the_range_and_returns_the_rates():
     assert out["status"] == "ok" and out["data"][0]["charging_window"]["from"] == "07:00"
     q = route.calls.last.request.url.params
     assert (q["type"], q["customer_scope"], q["from"], q["to"]) == ("capacity", "NON_LUMP_SUM", "2027-01-01", "2027-12-31") and "date" not in q
+
+
+@respx.mock
+async def test_get_regulatory_indicators_passes_filters():
+    route = respx.get("https://api.getsens.energy/api/v1/electricity/regulatory-indicators").mock(
+        return_value=httpx.Response(200, json={"data": [{"indicator": "average_market_price", "value": 486.14, "unit": "PLN/MWh",
+                                                        "valid_from": "2026-01-01", "valid_to": "2026-03-31"}], "meta": {"count": 1}}))
+    out = await server.get_regulatory_indicators(indicator="average_market_price", date_from="2026-01-01", date_to="2026-12-31")
+    assert out["status"] == "ok" and out["data"][0]["value"] == 486.14
+    q = route.calls.last.request.url.params
+    assert (q["indicator"], q["from"], q["to"]) == ("average_market_price", "2026-01-01", "2026-12-31") and "tariff_group" not in q
