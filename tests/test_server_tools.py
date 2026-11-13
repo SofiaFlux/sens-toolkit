@@ -243,3 +243,14 @@ async def test_get_regulatory_indicators_passes_filters():
     assert out["status"] == "ok" and out["data"][0]["value"] == 486.14
     q = route.calls.last.request.url.params
     assert (q["indicator"], q["from"], q["to"]) == ("average_market_price", "2026-01-01", "2026-12-31") and "tariff_group" not in q
+
+
+@respx.mock
+async def test_glossary_resource_serves_api_glossary():
+    """13.11: sens://glossary is the API's /glossary.json, one source of truth for codes."""
+    route = respx.get("https://api.getsens.energy/glossary.json").mock(
+        return_value=httpx.Response(200, json={"variant_group": {"EM_UTILISATION": {"variants": {"SM_LE_0_1": "Sm <= 0.100"}}}})
+    )
+    text = await server.glossary()
+    assert route.called
+    assert "SM_LE_0_1" in text

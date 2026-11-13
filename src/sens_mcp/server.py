@@ -86,6 +86,16 @@ def market_cheat_sheet() -> str:
     return discovery.CHEAT_SHEET_MARKDOWN
 
 
+@mcp.resource("sens://glossary", mime_type="application/json")
+async def glossary() -> str:
+    """What every code in SENS responses means: variant groups and keys (BILLING_PERIOD=M1, PHASES=P3, EM_UTILISATION=SM_GT_0_1, ...),
+    zone keys, component types, tariff group suffixes, warning codes and time fields. Read it before interpreting variants or warnings."""
+    client = get_client()
+    resp = await client._ensure_client().get("/glossary.json", headers={"Accept": "application/json"})
+    resp.raise_for_status()
+    return resp.text
+
+
 # ---------------------------------------------------------------------------
 # Discovery tools
 # ---------------------------------------------------------------------------
