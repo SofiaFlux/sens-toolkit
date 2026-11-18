@@ -73,11 +73,12 @@ class TestProtocolSurface:
     Cursor, a from-scratch agent) actually sees on connect.
     """
 
-    async def test_lists_all_four_tools(self):
+    async def test_lists_all_tools(self):
         async with open_session() as session:
             tools = (await session.list_tools()).tools
             names = {t.name for t in tools}
-            assert names == {"resolve_operator", "search_tariffs", "get_prices", "get_tariff_components"}
+            assert names == {"resolve_operator", "search_tariffs", "get_prices", "get_tariff_components",
+                             "get_regulated_fees", "get_regulatory_indicators"}
 
     async def test_lists_cheat_sheet_resource(self):
         async with open_session() as session:

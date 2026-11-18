@@ -253,8 +253,11 @@ async def get_tariff_components(tariff_id: str, since: str | None = None) -> dic
         return e.to_dict()
 
     try:
-        parsed = TariffComponentsResponse.model_validate(payload)
-        return {"status": "ok", **parsed.model_dump()}
+        # T1 (18.11): the API answers {data, page, size}; the old {items} model left "items": [] beside the rows, which reads as "no
+        # components". Mirror the API (parity with the raw call) and add total; the model only validates the rows.
+        TariffComponentsResponse.model_validate({"items": rows})
+        out = {k: v for k, v in payload.items() if k not in ("items", "content", "data")}
+        return {"status": "ok", **out, "data": rows, "total": payload.get("total", len(rows))}
     except Exception as e:  # noqa: BLE001 - MCP tool boundary: any parse/validation
         return _malformed_response_error(e)
 

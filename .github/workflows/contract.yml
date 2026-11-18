@@ -1,0 +1,32 @@
+name: Contract
+
+# T1 (Adam 16.11): the toolkit must stay in sync with the API. Unit tests on every push; the live suite (real MCP stdio server against
+# the production API) on every push and daily, so an API change that breaks the toolkit shows up within a day. The live job needs the
+# repository secret SENS_API_KEY; without it the job is skipped, not failed.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '30 5 * * *'   # 06:30 CET
+  workflow_dispatch:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv run pytest -q
+
+  live:
+    runs-on: ubuntu-latest
+    env:
+      SENS_API_KEY: ${{ secrets.SENS_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        if: env.SENS_API_KEY != ''
+      - uses: astral-sh/setup-uv@v6
+        if: env.SENS_API_KEY != ''
+      - run: uv run pytest -q -m live
+        if: env.SENS_API_KEY != ''
