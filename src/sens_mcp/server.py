@@ -272,9 +272,12 @@ async def get_regulated_fees(
 ) -> dict[str, Any]:
     """Nationwide regulated electricity fees in Poland, published by the President of URE: the capacity fee (opłata mocowa) --
     lump-sum monthly bands for households and the per-kWh rate for other end users together with its charging window
-    (local clock times, e.g. 07:00-22:00 on working days) -- the OZE fee and the cogeneration fee.
+    (local clock times, e.g. 07:00-22:00 on working days) -- the OZE fee and the cogeneration fee; and the quality fee (stawka
+    jakościowa) of the PSE tariff: SoSJ x kok for end users (NON_SPECIAL), SoSJ x kos unrounded for special consumers (SPECIAL),
+    each in force until the next PSE decision.
 
-    fee_type: capacity | oze | cogeneration (all when omitted). customer_scope: HOUSEHOLD_LUMP_SUM | NON_LUMP_SUM | ALL.
+    fee_type: capacity | oze | cogeneration | quality (all when omitted).
+    customer_scope: HOUSEHOLD_LUMP_SUM | NON_LUMP_SUM | ALL | NON_SPECIAL | SPECIAL.
     Either `date` (YYYY-MM-DD, rates in force that day; today when nothing is given) or `date_from` + `date_to`
     (every rate whose validity overlaps the range, at most 10 years), e.g. the quarterly business capacity rates of 2027.
     """
